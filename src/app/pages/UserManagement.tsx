@@ -75,11 +75,9 @@ export default function UserManagement() {
         body: { email: inviteEmail, full_name: inviteName },
       });
 
-      // Extract the real error message from the response body
-      if (error || data?.error) {
-        const message = data?.error ?? error?.message ?? 'Failed to send invite.';
-        throw new Error(message);
-      }
+      // Function always returns 200; check data.error for failures
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
 
       setInviteSuccess(true);
       setInviteEmail("");
