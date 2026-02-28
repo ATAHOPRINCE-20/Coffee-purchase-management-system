@@ -29,10 +29,12 @@ Deno.serve(async (req) => {
     // 2. Verify the caller is an Admin
     const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) {
+      console.error('[invite-agent] Auth error:', authError?.message);
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    console.log('[invite-agent] Caller user id:', user.id);
 
     const { data: callerProfile, error: profileError } = await userClient
       .from('profiles')
@@ -40,11 +42,19 @@ Deno.serve(async (req) => {
       .eq('id', user.id)
       .single();
 
-    if (profileError || !callerProfile || callerProfile.role !== 'Admin') {
+    if (profileError) {
+      console.error('[invite-agent] Profile fetch error:', profileError.message);
+      return new Response(JSON.stringify({ error: 'Could not verify caller profile: ' + profileError.message }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (!callerProfile || callerProfile.role !== 'Admin') {
+      console.error('[invite-agent] Caller is not Admin. Role:', callerProfile?.role);
       return new Response(JSON.stringify({ error: 'Only Admins can invite agents' }), {
         status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    console.log('[invite-agent] Caller confirmed Admin. admin_id:', callerProfile.admin_id);
 
     // 3. Parse the invite request body
     const { email, full_name } = await req.json();
@@ -53,6 +63,7 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    console.log('[invite-agent] Inviting:', email, 'as Field Agent under admin:', user.id);
 
     // 4. Use the service_role client to send the invite
     const adminClient = createClient(
@@ -65,7 +76,7 @@ Deno.serve(async (req) => {
       {
         data: {
           full_name,
-          admin_id: user.id,  // Embed admin_id so AcceptInvite page can use it
+          admin_id: user.id,
           role: 'Field Agent',
         },
         redirectTo: `${Deno.env.get('SITE_URL')}/accept-invite`,
@@ -73,10 +84,12 @@ Deno.serve(async (req) => {
     );
 
     if (inviteError) {
+      console.error('[invite-agent] inviteUserByEmail error:', inviteError.message);
       return new Response(JSON.stringify({ error: inviteError.message }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+    console.log('[invite-agent] Invite sent successfully to:', email);
 
     return new Response(JSON.stringify({ success: true, user: inviteData.user }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },

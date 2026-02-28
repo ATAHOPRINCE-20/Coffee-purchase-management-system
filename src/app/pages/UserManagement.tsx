@@ -18,7 +18,7 @@ interface AgentProfile {
 }
 
 export default function UserManagement() {
-  const { profile, session } = useAuth();
+  const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -73,7 +73,6 @@ export default function UserManagement() {
     try {
       const { error } = await supabase.functions.invoke('invite-agent', {
         body: { email: inviteEmail, full_name: inviteName },
-        headers: { Authorization: `Bearer ${session?.access_token}` },
       });
 
       if (error) throw error;
