@@ -71,11 +71,15 @@ export default function UserManagement() {
     setInviteError(null);
 
     try {
-      const { error } = await supabase.functions.invoke('invite-agent', {
+      const { data, error } = await supabase.functions.invoke('invite-agent', {
         body: { email: inviteEmail, full_name: inviteName },
       });
 
-      if (error) throw error;
+      // Extract the real error message from the response body
+      if (error || data?.error) {
+        const message = data?.error ?? error?.message ?? 'Failed to send invite.';
+        throw new Error(message);
+      }
 
       setInviteSuccess(true);
       setInviteEmail("");
