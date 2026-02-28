@@ -6,6 +6,7 @@ export interface Farmer {
   phone: string;
   village: string;
   region: string;
+  admin_id?: string;
   created_at?: string;
 }
 
@@ -31,7 +32,7 @@ export const farmersService = {
     return data as Farmer;
   },
 
-  async create(farmer: Farmer) {
+  async create(farmer: Omit<Farmer, 'id' | 'created_at'> & { admin_id: string }) {
     const { data, error } = await supabase
       .from('farmers')
       .insert(farmer)

@@ -10,6 +10,7 @@ export interface Advance {
   status: 'Active' | 'Cleared';
   issue_date: string;
   notes: string;
+  admin_id?: string;
 }
 
 export const advancesService = {

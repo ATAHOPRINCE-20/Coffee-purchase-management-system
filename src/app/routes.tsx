@@ -14,6 +14,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import SubscriptionManagement from "./pages/SubscriptionManagement";
 
 import Register from './pages/Register';
+import AcceptInvite from './pages/AcceptInvite';
 
 import FarmerForm from "./pages/FarmerForm";
 import Reports from "./pages/Reports";
@@ -25,6 +26,7 @@ import NotificationLog from "./pages/NotificationLog";
 export const router = createBrowserRouter([
   { path: "/login", Component: Login },
   { path: "/register", Component: Register },
+  { path: "/accept-invite", Component: AcceptInvite },
   {
     element: <ProtectedRoute />,
     children: [

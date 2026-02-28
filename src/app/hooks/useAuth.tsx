@@ -11,6 +11,8 @@ interface Profile {
   full_name: string;
   role: UserRole;
   phone: string;
+  admin_id: string;
+  status: 'Active' | 'Inactive';
   subscription?: UserSubscription | null;
 }
 

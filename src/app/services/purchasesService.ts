@@ -16,6 +16,7 @@ export interface Purchase {
   advance_deducted: number;
   cash_paid: number;
   field_agent_id: string;
+  admin_id?: string;
 }
 
 export const purchasesService = {

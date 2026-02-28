@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="20" fill="#3b1a08"/>
+  <!-- Cup body -->
+  <rect x="20" y="40" width="50" height="35" rx="4" fill="#c8773a"/>
+  <!-- Cup handle -->
+  <path d="M70 48 Q88 48 88 60 Q88 72 70 72" stroke="#c8773a" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <!-- Steam lines -->
+  <path d="M35 30 Q38 22 35 14" stroke="#e8c9a0" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <path d="M45 28 Q48 20 45 12" stroke="#e8c9a0" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <path d="M55 30 Q58 22 55 14" stroke="#e8c9a0" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+  <!-- Saucer -->
+  <ellipse cx="45" cy="77" rx="32" ry="6" fill="#a05a28"/>
+</svg>
