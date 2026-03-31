@@ -6,17 +6,22 @@ export interface Farmer {
   phone: string;
   village: string;
   region: string;
+  eudr_number?: string;
   admin_id?: string;
   created_at?: string;
+  deleted_at?: string | null;
 }
 
 export const farmersService = {
-  async getAll() {
-    const { data, error } = await supabase
+  async getAll(adminId: string) {
+    let query = supabase
       .from('farmers')
-      .select('*')
+      .select('*, profiles:admin_id(full_name)')
       .order('name');
-    
+      
+    // RLS handles visibility
+
+    const { data, error } = await query;
     if (error) throw error;
     return data as Farmer[];
   },
@@ -24,7 +29,7 @@ export const farmersService = {
   async getById(id: string) {
     const { data, error } = await supabase
       .from('farmers')
-      .select('*')
+      .select('*, profiles:admin_id(full_name)')
       .eq('id', id)
       .single();
     
@@ -58,7 +63,7 @@ export const farmersService = {
   async delete(id: string) {
     const { error } = await supabase
       .from('farmers')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('id', id);
     
     if (error) throw error;

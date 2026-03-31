@@ -1,11 +1,13 @@
 import { useState, useCallback } from "react";
 import { dailyPrices as seedPrices } from "../data/mockData";
+import { getEATDateString } from '../utils/dateUtils';
 
 export interface DailyPriceEntry {
   id: string;
   date: string;
-  Robusta: number;
-  Arabica: number;
+  Kiboko: number;
+  Red: number;
+  Kase: number;
   setBy: string;
   setAt: string;
   notes: string;
@@ -39,15 +41,11 @@ function formatTime(): string {
 export function useDailyPrices() {
   const [prices, setPrices] = useState<DailyPriceEntry[]>(() => loadFromStorage());
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getEATDateString();
 
   const todayEntry = prices.find((p) => p.date === today) ?? null;
 
-  const yesterdayDate = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-  })();
+  const yesterdayDate = getEATDateString(-1);
   const yesterdayEntry = prices.find((p) => p.date === yesterdayDate) ?? null;
 
   const getPriceForDate = useCallback(
@@ -58,22 +56,23 @@ export function useDailyPrices() {
   );
 
   const setTodayPrices = useCallback(
-    (robusta: number, arabica: number, notes: string) => {
+    (kiboko: number, red: number, kase: number, notes: string) => {
       const now = formatTime();
       const existing = prices.find((p) => p.date === today);
       let updated: DailyPriceEntry[];
       if (existing) {
         updated = prices.map((p) =>
           p.date === today
-            ? { ...p, Robusta: robusta, Arabica: arabica, notes, setAt: now }
+            ? { ...p, Kiboko: kiboko, Red: red, Kase: kase, notes, setAt: now }
             : p
         );
       } else {
         const newEntry: DailyPriceEntry = {
           id: `DP${Date.now()}`,
           date: today,
-          Robusta: robusta,
-          Arabica: arabica,
+          Kiboko: kiboko,
+          Red: red,
+          Kase: kase,
           setBy: "James Kato",
           setAt: now,
           notes,

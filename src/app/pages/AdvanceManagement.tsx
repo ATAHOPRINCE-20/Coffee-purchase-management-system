@@ -4,6 +4,8 @@ import { Search, Plus, ChevronDown, Filter, Eye, Check, X, CreditCard, TrendingU
 import { farmersService, Farmer } from "../services/farmersService";
 import { advancesService } from "../services/advancesService";
 import { seasonsService, Season } from "../services/seasonsService";
+import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
+import { getEATDateString } from "../utils/dateUtils";
 import { ErrorState } from "../components/ErrorState";
 
 function formatUGX(v: number) { return `UGX ${Math.round(v).toLocaleString()}`; }
@@ -38,6 +40,7 @@ function StatCard({ icon: Icon, label, value, sub, color, bgColor }: {
 }
 
 export default function AdvanceManagement() {
+  const { profile } = useAuth();
   const [farmers, setFarmers] = useState<Farmer[]>([]);
   const [advances, setAdvances] = useState<any[]>([]);
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -50,21 +53,76 @@ export default function AdvanceManagement() {
   const [amount, setAmount] = useState("");
   const [seasonId, setSeasonId] = useState("");
   const [notes, setNotes] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(() => getEATDateString());
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterSeason, setFilterSeason] = useState("All");
   const [tableSearch, setTableSearch] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  const DRAFT_KEY = 'advance_management_draft';
+
+  // Load basic fields on mount
+  useEffect(() => {
+    const draft = localStorage.getItem(DRAFT_KEY);
+    if (draft) {
+      try {
+        const parsed = JSON.parse(draft);
+        setAmount(parsed.amount || "");
+        setUnitPrice(parsed.unitPrice || "");
+        if (parsed.seasonId) setSeasonId(parsed.seasonId);
+        setDate(parsed.date || getEATDateString());
+        setNotes(parsed.notes || "");
+      } catch (e) {
+        console.error("Failed to load advance draft:", e);
+      }
+    }
+    setDraftLoaded(true);
+  }, []);
+
+  // Resolve farmer once farmers are loaded
+  useEffect(() => {
+    if (draftLoaded && farmers.length > 0) {
+      const draft = localStorage.getItem(DRAFT_KEY);
+      if (draft) {
+        try {
+          const parsed = JSON.parse(draft);
+          if (parsed.farmerId) {
+            const found = farmers.find(f => f.id === parsed.farmerId);
+            if (found) setSelectedFarmer(found);
+          }
+        } catch (e) {}
+      }
+    }
+  }, [draftLoaded, farmers]);
+
+  // Save draft on change
+  useEffect(() => {
+    if (!draftLoaded) return;
+    const draft = {
+      farmerId: selectedFarmer?.id,
+      amount,
+      unitPrice,
+      seasonId,
+      date,
+      notes
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [selectedFarmer, amount, unitPrice, seasonId, date, notes, draftLoaded]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
       setError(null);
+      const adminId = getEffectiveAdminId(profile);
+      if (!adminId) return;
       const [farmersData, advancesData, seasonsData] = await Promise.all([
-        farmersService.getAll(),
-        advancesService.getAll(),
-        seasonsService.getAll()
+        farmersService.getAll(adminId),
+        advancesService.getAll(adminId),
+        seasonsService.getAll(adminId)
       ]);
       setFarmers(farmersData);
       setAdvances(advancesData);
@@ -115,21 +173,26 @@ export default function AdvanceManagement() {
       try {
         setSubmitting(true);
         await advancesService.create({
-          id: `ADV-${Math.random().toString(36).substr(2, 4).toUpperCase()}`, // temp ID gen
+          id: `ADV-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
           farmer_id: selectedFarmer.id,
           amount: parseFloat(amount),
           deducted: 0,
           season_id: seasonId,
           issue_date: date,
           notes,
+          unit_price: unitPrice ? parseFloat(unitPrice) : undefined,
+          admin_id: getEffectiveAdminId(profile) || '',
         });
 
         setToast({ msg: "Advance recorded successfully!", type: "success" });
         setTimeout(() => setToast(null), 3000);
+        
+        localStorage.removeItem(DRAFT_KEY);
         handleReset();
         
         // Refresh list
-        const updatedAdvances = await advancesService.getAll();
+        const adminId = getEffectiveAdminId(profile);
+        const updatedAdvances = adminId ? await advancesService.getAll(adminId) : [];
         setAdvances(updatedAdvances);
       } catch (err: any) {
         setToast({ msg: err.message || "Failed to record advance", type: "error" });
@@ -144,8 +207,10 @@ export default function AdvanceManagement() {
     setFarmerSearch("");
     setAmount("");
     setNotes("");
-    setDate(new Date().toISOString().split("T")[0]);
+    setUnitPrice("");
+    setDate(getEATDateString());
     setErrors({});
+    localStorage.removeItem(DRAFT_KEY);
   };
 
   const inputBase = (field?: string) => `w-full px-3.5 py-2.5 rounded-xl border transition-all outline-none ${
@@ -191,16 +256,15 @@ export default function AdvanceManagement() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>Advance Management</h1>
-          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>Track and manage farmer advance payments</p>
+          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>Track and manage client advance payments</p>
         </div>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={CreditCard} label="Total Advances Given" value={`${formatUGX(Math.round(totalGiven / 1000))}K`} sub="all time" color="#14532D" bgColor="#f0fdf4" />
-        <StatCard icon={TrendingUp} label="Total Deducted" value={`${formatUGX(Math.round(totalDeducted / 1000))}K`} sub="recovered" color="#16A34A" bgColor="#f0fdf4" />
-        <StatCard icon={AlertCircle} label="Outstanding Balance" value={`${formatUGX(Math.round(outstanding / 1000))}K`} sub="to be recovered" color="#DC2626" bgColor="#fef2f2" />
-        <StatCard icon={Users} label="Active Advances" value={`${activeCount}`} sub="farmers with balance" color="#F59E0B" bgColor="#fffbeb" />
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <StatCard icon={CreditCard} label="Total Advances Given" value={formatUGX(totalGiven)} sub="all time" color="#14532D" bgColor="#f0fdf4" />
+        <StatCard icon={AlertCircle} label="Outstanding Balance" value={formatUGX(outstanding)} sub="to be recovered" color="#DC2626" bgColor="#fef2f2" />
+        <StatCard icon={Users} label="Active Advances" value={`${activeCount}`} sub="clients with balance" color="#F59E0B" bgColor="#fffbeb" />
       </div>
 
       {/* Main Split Layout */}
@@ -217,7 +281,7 @@ export default function AdvanceManagement() {
               {/* Farmer Select */}
               <div>
                 <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                  Farmer Name <span style={{ color: "#DC2626" }}>*</span>
+                  Client Name <span style={{ color: "#DC2626" }}>*</span>
                 </label>
                 <div className="relative">
                   <div
@@ -234,7 +298,7 @@ export default function AdvanceManagement() {
                     ) : (
                       <input
                         type="text"
-                        placeholder="Search farmer..."
+                        placeholder="Search client..."
                         value={farmerSearch}
                         onChange={e => { setFarmerSearch(e.target.value); setFarmerDropdown(true); }}
                         onClick={e => { e.stopPropagation(); setFarmerDropdown(true); }}
@@ -304,6 +368,33 @@ export default function AdvanceManagement() {
                   />
                 </div>
                 {errors.amount && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.amount}</p>}
+              </div>
+
+              {/* Unit Price (Optional) */}
+              <div>
+                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
+                  Unit Price (Optional)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>UGX</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={unitPrice}
+                    onChange={e => setUnitPrice(e.target.value)}
+                    placeholder="Agreed price per kg"
+                    className={inputBase()}
+                    style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151", paddingLeft: "48px" }}
+                  />
+                </div>
+                {unitPrice && parseFloat(unitPrice) > 0 && amount && parseFloat(amount) > 0 && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-green-50 border border-green-100 flex items-center justify-between">
+                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#14532D", fontWeight: 600 }}>Expected KGs:</span>
+                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#14532D", fontWeight: 700 }}>
+                      {(parseFloat(amount) / parseFloat(unitPrice)).toFixed(2)} kg
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Season */}
@@ -383,7 +474,7 @@ export default function AdvanceManagement() {
                     <Search size={13} color="#9CA3AF" className="absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
-                      placeholder="Search farmer..."
+                      placeholder="Search client..."
                       value={tableSearch}
                       onChange={e => setTableSearch(e.target.value)}
                       className="pl-8 pr-3 py-2 rounded-xl border border-gray-200 outline-none focus:border-[#14532D]"
@@ -417,55 +508,63 @@ export default function AdvanceManagement() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr style={{ backgroundColor: "#F8FAFC" }}>
-                    {["Farmer", "Amount Given", "Amount Deducted", "Remaining Balance", "Status", "Date", "Action"].map(h => (
-                      <th key={h} className="px-4 py-3 text-left whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+            {/* Desktop View */}
+          <div className="hidden lg:block overflow-x-auto max-h-[600px]">
+            <table className="w-full relative">
+              <thead className="sticky top-0 z-10" style={{ backgroundColor: "#F8FAFC" }}>
+                <tr>{["Client", "Given", "Deducted", "Balance", "Expected Price", "Expected", "Status", "Date", ...(profile?.role === 'Super Admin' ? ["Admin"] : []), "Action"].map(h => (
+                      <th key={h} className="px-3 py-3 text-left" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredAdvances.map(a => (
                     <tr key={a.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3.5">
+                      <td className="px-3 py-3.5">
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                             style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter", fontSize: "11px", fontWeight: 700 }}>
                             {(a.farmers?.name || "Unknown").split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
                           </div>
                           <div>
-                            <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 500, color: "#111827" }}>{a.farmers?.name || "Unknown"}</div>
+                            <div className="line-clamp-1 break-words max-w-[120px]" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 500, color: "#111827" }}>{a.farmers?.name || "Unknown"}</div>
                             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#9CA3AF" }}>{a.seasons?.name || "N/A"}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>
+                      <td className="px-3 py-3.5 whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>
                         {formatUGX(a.amount)}
                       </td>
-                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 500, color: "#16A34A" }}>
+                      <td className="px-3 py-3.5 whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 500, color: "#16A34A" }}>
                         {formatUGX(a.deducted)}
                       </td>
-                      <td className="px-4 py-3.5">
+                      <td className="px-3 py-3.5 whitespace-nowrap">
                         {a.remaining > 0 ? (
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex-1 h-1.5 rounded-full bg-gray-100" style={{ minWidth: "60px" }}>
-                              <div className="h-1.5 rounded-full" style={{ width: `${(a.remaining / a.amount) * 100}%`, backgroundColor: "#DC2626" }} />
-                            </div>
-                            <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: "#DC2626" }}>
-                              {formatUGX(a.remaining)}
-                            </span>
-                          </div>
+                           <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: "#DC2626" }}>
+                             {formatUGX(a.remaining)}
+                           </span>
                         ) : (
                           <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#16A34A" }}>Cleared</span>
                         )}
                       </td>
-                      <td className="px-4 py-3.5"><Badge status={a.status} /></td>
-                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>{a.issue_date}</td>
-                      <td className="px-4 py-3.5">
+                      <td className="px-3 py-3.5 whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>
+                        {a.unit_price ? `UGX ${a.unit_price.toLocaleString()}/kg` : "—"}
+                      </td>
+                      <td className="px-3 py-3.5 whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#14532D" }}>
+                        {a.unit_price ? `${(a.amount / a.unit_price).toFixed(1)} kg` : "—"}
+                      </td>
+                      <td className="px-3 py-3.5 whitespace-nowrap"><Badge status={a.status} /></td>
+                      <td className="px-3 py-3.5 whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>{a.issue_date}</td>
+                      {profile?.role === 'Super Admin' && (
+                        <td className="px-3 py-3.5 whitespace-nowrap">
+                          <span className="px-2.5 py-1 rounded-lg" style={{ backgroundColor: "#f3f4f6", color: "#4b5563", fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600 }}>
+                            {a.admin?.full_name || 'System'}
+                          </span>
+                        </td>
+                      )}
+                      <td className="px-3 py-3.5">
                         <button
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-green-100 transition-colors"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-green-100 transition-colors whitespace-nowrap"
                           style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 500, color: "#14532D", backgroundColor: "#f0fdf4" }}
                         >
                           <Eye size={12} />
@@ -476,6 +575,86 @@ export default function AdvanceManagement() {
                   ))}
                 </tbody>
               </table>
+              {filteredAdvances.length === 0 && (
+                <div className="py-12 text-center">
+                  <div className="text-4xl mb-3">💳</div>
+                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280" }}>No advances match your filter</div>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile View */}
+            <div className="lg:hidden flex flex-col divide-y divide-gray-50">
+              {filteredAdvances.map(a => {
+                const isExpanded = expandedId === a.id;
+                return (
+                  <div key={a.id} className="p-4 flex flex-col bg-white">
+                    <div 
+                      className="flex justify-between items-center w-full cursor-pointer"
+                      onClick={() => setExpandedId(isExpanded ? null : a.id)}
+                    >
+                      <div className="flex items-center gap-2.5 pr-2 min-w-0">
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter", fontSize: "11px", fontWeight: 700 }}>
+                          {(a.farmers?.name || "Unknown").split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#111827" }} className="truncate">{a.farmers?.name || "Unknown"}</div>
+                          <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280" }}>{a.seasons?.name || "N/A"} • {a.issue_date}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <Badge status={a.status} />
+                        <ChevronDown size={18} color="#9CA3AF" className={`transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+                      </div>
+                    </div>
+                    
+                    {isExpanded && (
+                      <div className="mt-4 pt-4 border-t border-gray-100 flex flex-col gap-3 animate-in slide-in-from-top-2 duration-200">
+                        <div className="grid grid-cols-2 gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100/60">
+                          <div>
+                            <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600 }}>Given</div>
+                            <div style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{formatUGX(a.amount)}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600 }}>Deducted</div>
+                            <div style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#16A34A" }}>{formatUGX(a.deducted)}</div>
+                          </div>
+                          
+                          <div className="col-span-2 pt-2 border-t border-gray-200/60 mt-1 flex justify-between items-center">
+                            <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#6B7280", fontWeight: 500 }}>Balance</div>
+                            <div>
+                              {a.remaining > 0 ? (
+                                 <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: "#DC2626" }}>{formatUGX(a.remaining)}</span>
+                              ) : (
+                                 <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#16A34A" }}>Cleared</span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {a.unit_price && (
+                            <div className="col-span-2 pt-2 border-t border-gray-200/60 mt-1 flex justify-between items-center">
+                              <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#6B7280", fontWeight: 500 }}>Expected Return</div>
+                              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: "#14532D" }}>
+                                {(a.amount / a.unit_price).toFixed(1)} kg @ {formatUGX(a.unit_price)}/kg
+                              </div>
+                            </div>
+                          )}
+                          
+                          {profile?.role === 'Super Admin' && (
+                            <div className="col-span-2 pt-2 border-t border-gray-200/60 mt-1 flex justify-between items-center">
+                              <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#6B7280", fontWeight: 500 }}>Admin Branch</div>
+                              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#4b5563" }}>
+                                {a.admin?.full_name || 'System'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {filteredAdvances.length === 0 && (
                 <div className="py-12 text-center">
                   <div className="text-4xl mb-3">💳</div>

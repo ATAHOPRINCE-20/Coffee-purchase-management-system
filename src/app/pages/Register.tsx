@@ -7,8 +7,10 @@ import { useAuth } from '../hooks/useAuth';
 export default function Register() {
   const { user } = useAuth();
   const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'Admin' | 'Manager' | 'Field Agent'>('Field Agent');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -33,13 +35,19 @@ export default function Register() {
         options: {
           data: {
             full_name: fullName,
+            username: username.toLowerCase().trim() || null,
+            role: role,
           },
         },
       });
 
       if (error) {
         console.error('[Register] Signup error:', error);
-        setError(error.message);
+        if (error.status === 429) {
+          setError('Too many registration attempts. Please try again in a few minutes.');
+        } else {
+          setError(error.message);
+        }
         setLoading(false);
       } else {
         console.log('[Register] Signup success!');
@@ -61,14 +69,14 @@ export default function Register() {
       <div className="w-full max-w-[440px]">
         {/* Logo & Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#14532D] text-white mb-4 shadow-lg shadow-green-900/20">
-            <Coffee size={32} />
+          <div className="inline-flex items-center justify-center w-20 h-20 mb-4">
+            <img src="/icon.png" alt="CoffeeTrack Logo" className="w-full h-full object-contain drop-shadow-xl" />
           </div>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: '24px', fontWeight: 800, color: '#111827' }}>
             Join CoffeeTrack
           </h1>
           <p style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px', color: '#6B7280', marginTop: '4px' }}>
-            Create an agent account to start management
+            Create an account to start management
           </p>
         </div>
 
@@ -95,7 +103,24 @@ export default function Register() {
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="John Doe"
+                  placeholder="Akello Grace"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
+                  style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-1.5" style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', fontWeight: 600, color: '#374151' }}>
+                Username (Optional)
+              </label>
+              <div className="relative">
+                <User size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="grace_akello (optional)"
                   className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
                   style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
                 />
@@ -137,6 +162,22 @@ export default function Register() {
                   style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block mb-1.5" style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', fontWeight: 600, color: '#374151' }}>
+                Your Role
+              </label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as any)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all bg-white"
+                style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
+              >
+                <option value="Field Agent">Field Agent</option>
+                <option value="Manager">Manager</option>
+                <option value="Admin">Admin</option>
+              </select>
             </div>
 
             <button

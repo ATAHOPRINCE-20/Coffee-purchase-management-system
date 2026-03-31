@@ -4,14 +4,17 @@ import { User, Session } from '@supabase/supabase-js';
 
 import { UserSubscription, subscriptionsService } from '../services/subscriptionsService';
 
-export type UserRole = 'Admin' | 'Manager' | 'Field Agent';
+export type UserRole = 'Admin' | 'Manager' | 'Field Agent' | 'Super Admin';
 
 interface Profile {
   id: string;
   full_name: string;
+  username: string;
+  email: string;
   role: UserRole;
   phone: string;
   admin_id: string;
+  parent_id?: string;
   status: 'Active' | 'Inactive';
   subscription?: UserSubscription | null;
 }
@@ -60,8 +63,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (err) {
       console.error('[useAuth] Uncaught profile fetch error:', err);
     } finally {
-      // Always ensure loading is false if we have a user
-      setLoading(false);
+      if (userId && !profile) {
+        // We have a user but no profile record
+        setLoading(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
@@ -88,6 +95,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(currentUser);
       
       if (currentUser) {
+        // If login/token refresh happens, we must fetch the profile
+        // but only if we don't already have the correct profile
+        setLoading(true);
         fetchProfile(currentUser.id);
       } else {
         setProfile(null);
@@ -121,3 +131,17 @@ export const useAuth = () => {
   }
   return context;
 };
+
+/**
+ * Returns the admin_id that should be used to scope all data queries.
+ * - Super Admins → 'SUPER_ADMIN' (bypasses admin checks)
+ * - Admins  → their own id (they ARE the admin)
+ * - Agents  → their admin_id (they belong to an admin)
+ */
+export function getEffectiveAdminId(profile: Profile | null): string | null {
+  if (!profile) return null;
+  if (profile.role === 'Super Admin') return 'SUPER_ADMIN';
+  // In the pyramid model, everyone uses their own ID for data scoping
+  // RLS will handle recursive visibility upwards.
+  return profile.id;
+}

@@ -44,16 +44,21 @@ Deno.serve(async (req) => {
       console.error('[invite-agent] Profile error:', profileError.message);
       return respond({ error: 'Profile error: ' + profileError.message });
     }
-    if (!callerProfile || callerProfile.role !== 'Admin') {
-      return respond({ error: 'Only Admins can invite agents.' });
+    // Any active user can now invite a sub-agent in the pyramid model
+    if (!callerProfile) {
+      return respond({ error: 'Caller profile not found.' });
     }
 
     // 3. Parse body
-    const { email, full_name } = await req.json();
+    const { email, full_name, phone, role } = await req.json();
     if (!email || !full_name) return respond({ error: 'Email and full name are required.' });
-    console.log('[invite-agent] Inviting:', email, 'under admin:', user.id);
+    
+    // Validate role if provided, otherwise default to "Field Agent"
+    const finalRole = role && ['Admin', 'Manager', 'Field Agent'].includes(role) ? role : 'Field Agent';
+    
+    console.log(`[invite-agent] Inviting: ${email} as ${finalRole} under parent: ${user.id}`);
 
-    // 4. Generate invite link via Supabase admin (no email sent by Supabase)
+    // 4. Generate invite link via Supabase admin
     const adminClient = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -63,7 +68,13 @@ Deno.serve(async (req) => {
       type: 'invite',
       email,
       options: {
-        data: { full_name, admin_id: user.id, role: 'Field Agent' },
+        data: { 
+          full_name, 
+          phone, 
+          admin_id: callerProfile.admin_id || user.id, // Preserve the root branch ID
+          parent_id: user.id, // Direct inviter
+          role: finalRole 
+        },
         redirectTo: `${Deno.env.get('SITE_URL')}/accept-invite`,
       },
     });
@@ -73,58 +84,47 @@ Deno.serve(async (req) => {
       return respond({ error: linkError.message });
     }
 
-    const inviteUrl = linkData.properties?.action_link;
-    if (!inviteUrl) return respond({ error: 'Failed to generate invite link.' });
-    console.log('[invite-agent] Invite link generated for:', email);
+    const actionLink = linkData.properties?.action_link;
+    if (!actionLink) return respond({ error: 'Failed to generate invite token.' });
+    
+    // 5. Create a Pending profile row so they show up in the staff list immediately
+    const { error: profileError2 } = await adminClient
+      .from('profiles')
+      .upsert({
+        id: linkData.user.id,
+        full_name,
+        phone,
+        role: finalRole,
+        admin_id: callerProfile.admin_id || user.id,
+        parent_id: user.id,
+        status: 'Pending'
+      });
 
-    // 5. Send the invite email via Resend
-    const resendRes = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${Deno.env.get('RESEND_API_KEY')}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'Coffee Management System <onboarding@resend.dev>',
-        to: [email],
-        subject: "You've been invited to Coffee Management System",
-        html: `
-          <div style="font-family: Inter, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px 24px; background: #f8fafc;">
-            <div style="background: white; border-radius: 16px; padding: 32px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
-              <div style="text-align: center; margin-bottom: 24px;">
-                <div style="display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; background: #14532D; border-radius: 14px; margin-bottom: 16px;">
-                  <span style="font-size: 28px;">☕</span>
-                </div>
-                <h1 style="margin: 0; font-size: 22px; font-weight: 800; color: #111827;">You're invited!</h1>
-                <p style="margin: 8px 0 0; color: #6B7280; font-size: 14px;">
-                  You've been added as a <strong>Field Agent</strong> on Coffee Management System.
-                </p>
-              </div>
-              <p style="color: #374151; font-size: 14px; line-height: 1.6;">
-                Hi <strong>${full_name}</strong>, click the button below to set up your account and get started.
-              </p>
-              <div style="text-align: center; margin: 28px 0;">
-                <a href="${inviteUrl}" style="display: inline-block; background: #14532D; color: white; text-decoration: none; padding: 14px 32px; border-radius: 10px; font-weight: 700; font-size: 15px;">
-                  Accept Invitation
-                </a>
-              </div>
-              <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin: 0;">
-                This link expires in 24 hours. If you did not expect this invitation, you can ignore this email.
-              </p>
-            </div>
-          </div>
-        `,
-      }),
-    });
-
-    if (!resendRes.ok) {
-      const resendError = await resendRes.text();
-      console.error('[invite-agent] Resend error:', resendError);
-      return respond({ error: 'Failed to send email: ' + resendError });
+    if (profileError2) {
+      console.error('[invite-agent] Pending profile creation error:', profileError2.message);
+      // We don't fail the whole request, but we log the error.
     }
 
-    console.log('[invite-agent] Email sent via Resend to:', email);
-    return respond({ success: true });
+    // 6. Construct the invite link...
+    let hashedToken = '';
+    try {
+      const parsedUrl = new URL(actionLink);
+      hashedToken = parsedUrl.searchParams.get('token_hash') || parsedUrl.searchParams.get('token') || '';
+    } catch {
+      // Fallback manual regex if URL parsing fails on a relative path
+      const match = actionLink.match(/token(?:_hash)?=([^&]+)/);
+      hashedToken = match ? match[1] : '';
+    }
+
+    if (!hashedToken) return respond({ error: 'Failed to extract token hash from action link.' });
+    
+    // Construct the invite link to hit our frontend specifically with token_hash
+    const inviteUrl = `${Deno.env.get('SITE_URL')}/accept-invite?token_hash=${hashedToken}&type=invite`;
+    console.log('[invite-agent] Invite link generated for:', email);
+
+    // Return the invite link directly to the client (to be shared via WhatsApp)
+    console.log('[invite-agent] WHATSAPP INVITE LINK RETURNED:', inviteUrl);
+    return respond({ success: true, inviteUrl });
 
   } catch (err: any) {
     console.error('[invite-agent] Uncaught error:', err.message);

@@ -1,19 +1,25 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { Layout } from "../components/Layout";
+import { supabase } from "../lib/supabase";
 import { Check, ChevronDown, Info, Save, X, Calculator, User, Coffee, UserPlus, AlertCircle, Loader2 } from "lucide-react";
 import { farmersService, Farmer } from "../services/farmersService";
 import { purchasesService } from "../services/purchasesService";
 import { advancesService, Advance } from "../services/advancesService";
 import { pricesService } from "../services/pricesService";
 import { seasonsService, Season } from "../services/seasonsService";
-import { useAuth } from "../hooks/useAuth";
+import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
+import { useSync } from "../contexts/SyncContext";
+import { getEATDateString } from "../utils/dateUtils";
+import { PurchaseReceiptModal } from "../components/PurchaseReceiptModal";
 
 const STANDARD_MOISTURE = parseFloat(import.meta.env.VITE_STANDARD_MOISTURE || "14");
+const PURCHASE_DRAFT_KEY = "cpms_purchase_entry_draft";
 
 function calcDeduction(gross: number, moisture: number, std: number) {
   if (moisture <= std) return 0;
-  return (gross * (moisture - std)) / (100 - std);
+  // User Formula: Deduction = Gross * (Moisture - Std) * 1.5%
+  return gross * (moisture - std) * 0.015;
 }
 
 function formatUGX(v: number) {
@@ -21,41 +27,59 @@ function formatUGX(v: number) {
 }
 
 type SuccessToastProps = { visible: boolean };
-function SuccessToast({ visible }: SuccessToastProps) {
+function SuccessToast({ visible, isOnline }: SuccessToastProps & { isOnline: boolean }) {
   if (!visible) return null;
   return (
-    <div className="fixed bottom-6 right-6 flex items-center gap-3 px-5 py-4 rounded-xl shadow-xl z-50"
-      style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 500 }}>
-      <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center"><Check size={14} color="#fff" /></div>
-      Purchase saved successfully!
+    <div className="fixed bottom-6 right-6 flex items-center gap-3 px-5 py-4 rounded-xl shadow-xl z-50 transition-all"
+      style={{ backgroundColor: isOnline ? "#14532D" : "#F59E0B", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 500 }}>
+      {isOnline ? (
+         <>
+           <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center"><Check size={14} color="#fff" /></div>
+           Purchase saved successfully!
+         </>
+      ) : (
+         <>
+           <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center"><AlertCircle size={14} color="#fff" /></div>
+           Saved Offline. Pending Sync.
+         </>
+      )}
     </div>
   );
 }
 
 export default function PurchaseEntry() {
   const navigate = useNavigate();
+  const { id: editId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const farmerIdParam = searchParams.get('farmerId');
+  const isEditMode = !!editId;
   const { profile } = useAuth();
+  const { isOnline, addToSyncQueue } = useSync();
   const [loading, setLoading] = useState(true);
   const [allFarmers, setAllFarmers] = useState<Farmer[]>([]);
   const [activeSeason, setActiveSeason] = useState<Season | null>(null);
-  const [buyingPrices, setBuyingPrices] = useState({ Robusta: 0, Arabica: 0, Red: 0, Kase: 0 });
+  const [buyingPrices, setBuyingPrices] = useState({ Kiboko: 0, Red: 0, Kase: 0 });
   const [selectedFarmer, setSelectedFarmer] = useState<Farmer | null>(null);
   const [farmerSearch, setFarmerSearch] = useState("");
   const [farmerDropdownOpen, setFarmerDropdownOpen] = useState(false);
   
   // New Farmer State
   const [isNewFarmer, setIsNewFarmer] = useState(false);
-  const [newFarmerData, setNewFarmerData] = useState({ phone: "", village: "" });
+  const [newFarmerData, setNewFarmerData] = useState({ phone: "", village: "", eudr_number: "" });
 
-  const [coffeeType, setCoffeeType] = useState<"Robusta" | "Arabica" | "Red" | "Kase">("Robusta");
+  const [coffeeType, setCoffeeType] = useState<"Kiboko" | "Red" | "Kase">("Kiboko");
   const [grossWeight, setGrossWeight] = useState<string>("");
   const [moisture, setMoisture] = useState<string>("");
   const [standardMoisture, setStandardMoisture] = useState<string>(String(STANDARD_MOISTURE));
   const [advanceDeduct, setAdvanceDeduct] = useState<string>("");
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(() => getEATDateString());
+  const [eudrNumber, setEudrNumber] = useState("");
   const [toast, setToast] = useState(false);
+  const [manualDeduction, setManualDeduction] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [savedPurchase, setSavedPurchase] = useState<any>(null);
 
   const [farmerAdvances, setFarmerAdvances] = useState<Advance[]>([]);
 
@@ -63,20 +87,76 @@ export default function PurchaseEntry() {
     const fetchData = async () => {
       try {
         setLoading(true);
+        const adminId = getEffectiveAdminId(profile);
+        if (!adminId) return;
         const [farmers, season, prices] = await Promise.all([
-          farmersService.getAll(),
-          seasonsService.getActive(),
-          pricesService.getLatest()
+          farmersService.getAll(adminId),
+          seasonsService.getActive(adminId),
+          pricesService.getLatest(adminId)
         ]);
         setAllFarmers(farmers);
         setActiveSeason(season);
         if (prices) {
           setBuyingPrices({
-            Robusta: prices.robusta_price,
-            Arabica: prices.arabica_price,
+            Kiboko: prices.kiboko_price,
             Red: prices.red_price || 0,
             Kase: prices.kase_price || 0
           });
+        }
+
+        // If editing, load existing purchase data
+        if (isEditMode && editId) {
+          const existing = await purchasesService.getById(editId);
+          if (existing) {
+            setCoffeeType(existing.coffee_type as any);
+            setGrossWeight(String(existing.gross_weight));
+            setMoisture(String(existing.moisture_content));
+            setStandardMoisture(String(existing.standard_moisture));
+            setAdvanceDeduct(String(existing.advance_deducted || ''));
+            setDate(existing.date);
+            // Find and set the farmer
+            const farmer = farmers.find(f => f.id === existing.farmer_id);
+            if (farmer) {
+              setSelectedFarmer(farmer);
+              setFarmerSearch(farmer.name);
+            }
+          }
+        } else {
+          // New purchase - check for farmerId param first, then try to restore draft
+          const farmerIdFromParam = farmerIdParam;
+          const draftStr = localStorage.getItem(PURCHASE_DRAFT_KEY);
+          let draft: any = null;
+          if (draftStr) {
+            try {
+              draft = JSON.parse(draftStr);
+            } catch (e) {
+              console.error("Error parsing purchase draft", e);
+            }
+          }
+
+          if (farmerIdFromParam) {
+            const farmer = farmers.find(f => f.id === farmerIdFromParam);
+            if (farmer) {
+              setSelectedFarmer(farmer);
+              setFarmerSearch(farmer.name);
+              setEudrNumber(farmer.eudr_number || "");
+            }
+          } else if (draft) {
+            setCoffeeType(draft.coffeeType || "Kiboko");
+            setGrossWeight(draft.grossWeight || "");
+            setMoisture(draft.moisture || "");
+            setStandardMoisture(draft.standardMoisture || String(STANDARD_MOISTURE));
+            setAdvanceDeduct(draft.advanceDeduct || "");
+            setDate(draft.date || getEATDateString());
+            setManualDeduction(draft.manualDeduction || "");
+            setIsNewFarmer(!!draft.isNewFarmer);
+            setNewFarmerData(draft.newFarmerData || { phone: "", village: "", eudr_number: "" });
+            setEudrNumber(draft.eudrNumber || "");
+            if (draft.selectedFarmer) {
+              setSelectedFarmer(draft.selectedFarmer);
+              setFarmerSearch(draft.selectedFarmer.name);
+            }
+          }
         }
       } catch (err) {
         console.error("Error fetching data:", err);
@@ -85,7 +165,7 @@ export default function PurchaseEntry() {
       }
     };
     fetchData();
-  }, []);
+  }, [isEditMode]);
 
   useEffect(() => {
     if (selectedFarmer && !isNewFarmer) {
@@ -95,14 +175,39 @@ export default function PurchaseEntry() {
     }
   }, [selectedFarmer, isNewFarmer]);
 
+  // Persist draft to localStorage on change
+  useEffect(() => {
+    if (!isEditMode && !loading) {
+      const draft = {
+        selectedFarmer,
+        coffeeType,
+        grossWeight,
+        moisture,
+        standardMoisture,
+        advanceDeduct,
+        date,
+        eudrNumber,
+        manualDeduction,
+        isNewFarmer,
+        newFarmerData
+      };
+      localStorage.setItem(PURCHASE_DRAFT_KEY, JSON.stringify(draft));
+    }
+  }, [
+    selectedFarmer, coffeeType, grossWeight, moisture, standardMoisture, 
+    advanceDeduct, date, manualDeduction, isNewFarmer, newFarmerData, isEditMode, loading
+  ]);
+
   const farmerAdvance = farmerAdvances.find(a => a.status === "Active");
 
   const gross = parseFloat(grossWeight) || 0;
-  const moist = parseFloat(moisture) || 0;
-  const std = parseFloat(standardMoisture) || 14;
+  const moist = coffeeType === "Kase" ? (parseFloat(moisture) || 0) : 0;
+  const std = coffeeType === "Kase" ? (parseFloat(standardMoisture) || 14) : 0;
   const price = buyingPrices[coffeeType];
 
-  const deduction = calcDeduction(gross, moist, std);
+  const exactDeduction = coffeeType === "Kase" ? calcDeduction(gross, moist, std) : 0;
+  const autoDeduction = Math.ceil(exactDeduction);
+  const deduction = manualDeduction !== "" ? (parseFloat(manualDeduction) || 0) : autoDeduction;
   const payable = gross - deduction;
   const moistureLoss = gross > 0 ? (deduction / gross) * 100 : 0;
   const totalAmount = payable * price;
@@ -131,10 +236,12 @@ export default function PurchaseEntry() {
       setIsNewFarmer(true);
       setSelectedFarmer({ id: 'new', name: f.name, phone: '', village: '', region: '' });
       setFarmerSearch(f.name);
+      setEudrNumber("");
     } else {
       setIsNewFarmer(false);
       setSelectedFarmer(f);
       setFarmerSearch(f.name);
+      setEudrNumber(f.eudr_number || "");
     }
     setFarmerDropdownOpen(false);
     setAdvanceDeduct("");
@@ -142,13 +249,13 @@ export default function PurchaseEntry() {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!selectedFarmer) e.farmer = "Please select a farmer";
+    if (!selectedFarmer) e.farmer = "Please select a client";
     if (isNewFarmer) {
-      if (!newFarmerData.phone) e.phone = "Phone is required for new farmers";
-      if (!newFarmerData.village) e.village = "Village is required for new farmers";
+      if (!newFarmerData.phone) e.phone = "Phone is required for new clients";
+      if (!newFarmerData.village) e.village = "Village is required for new clients";
     }
     if (!grossWeight || gross <= 0) e.grossWeight = "Enter a valid gross weight";
-    if (!moisture || moist < 0 || moist > 100) e.moisture = "Enter a valid moisture content (0–100%)";
+    if (coffeeType === "Kase" && (!moisture || moist < 0 || moist > 100)) e.moisture = "Enter a valid moisture content (0–100%)";
     if (!activeSeason) e.season = "No active season found. Please contact admin.";
     return e;
   };
@@ -161,50 +268,116 @@ export default function PurchaseEntry() {
       setSaving(true);
       setErrors({});
 
-      let farmerId = selectedFarmer!.id;
+      let finalPurchaseData: any;
 
-      if (isNewFarmer) {
-        const newFarmer = await farmersService.create({
-          name: selectedFarmer!.name,
-          phone: newFarmerData.phone,
-          village: newFarmerData.village,
-          region: "Western Uganda", // Default or add field
-        } as Farmer);
-        farmerId = newFarmer.id;
+      if (isEditMode && editId) {
+        // Update existing purchase
+        const updateData = {
+          coffee_type: coffeeType,
+          gross_weight: gross,
+          moisture_content: moist,
+          standard_moisture: std,
+          deduction_weight: deduction,
+          payable_weight: payable,
+          buying_price: price,
+          total_amount: totalAmount,
+          advance_deducted: advDed,
+          cash_paid: cashToPay,
+          date: date,
+        };
+        await purchasesService.update(editId, updateData);
+        finalPurchaseData = { id: editId, ...updateData };
+      } else {
+        let farmerId = selectedFarmer!.id;
+
+        if (isNewFarmer) {
+          const newFarmerPayload = {
+            id: crypto.randomUUID(),
+            name: selectedFarmer!.name,
+            phone: newFarmerData.phone,
+            village: newFarmerData.village,
+            eudr_number: eudrNumber,
+            region: "Western Uganda",
+            admin_id: getEffectiveAdminId(profile) || '',
+          };
+
+          if (isOnline) {
+            const newFarmer = await farmersService.create(newFarmerPayload);
+            farmerId = newFarmer.id;
+          } else {
+            await addToSyncQueue('CREATE_FARMER', newFarmerPayload);
+            farmerId = newFarmerPayload.id;
+          }
+        } else if (selectedFarmer && eudrNumber !== (selectedFarmer.eudr_number || "")) {
+          // Update existing farmer's EUDR number if it changed
+          try {
+            if (isOnline) {
+              await farmersService.update(selectedFarmer.id, { eudr_number: eudrNumber });
+            } else {
+              await addToSyncQueue('UPDATE_FARMER', { id: selectedFarmer.id, eudr_number: eudrNumber });
+            }
+          } catch (err) {
+            console.error("Error updating farmer EUDR number:", err);
+            // Non-critical, continue with purchase
+          }
+        }
+
+        const purchasePayload = {
+          p_id: crypto.randomUUID(),
+          p_farmer_id: farmerId,
+          p_season_id: activeSeason!.id,
+          p_date: date,
+          p_coffee_type: coffeeType,
+          p_gross_weight: gross,
+          p_moisture_content: moist,
+          p_standard_moisture: std,
+          p_deduction_weight: deduction,
+          p_payable_weight: payable,
+          p_buying_price: price,
+          p_total_amount: totalAmount,
+          p_advance_deducted: advDed,
+          p_cash_paid: cashToPay,
+          p_field_agent_id: profile?.id || '',
+          p_admin_id: getEffectiveAdminId(profile) || '',
+        };
+
+        if (isOnline) {
+          const { data: rpcData, error: rpcError } = await supabase.rpc('record_purchase_v1', purchasePayload);
+          if (rpcError) throw rpcError;
+          if (rpcData && !rpcData.success) throw new Error(rpcData.error || 'Failed to record purchase');
+        } else {
+          await addToSyncQueue('CREATE_PURCHASE_ATOMIC', purchasePayload);
+        }
+
+        finalPurchaseData = {
+          id: purchasePayload.p_id,
+          farmer_id: purchasePayload.p_farmer_id,
+          date: purchasePayload.p_date,
+          coffee_type: purchasePayload.p_coffee_type,
+          gross_weight: purchasePayload.p_gross_weight,
+          payable_weight: purchasePayload.p_payable_weight,
+          buying_price: purchasePayload.p_buying_price,
+          total_amount: purchasePayload.p_total_amount,
+          advance_deducted: purchasePayload.p_advance_deducted,
+          cash_paid: purchasePayload.p_cash_paid,
+          field_agent_id: purchasePayload.p_field_agent_id,
+        };
       }
 
-      await purchasesService.create({
-        farmer_id: farmerId,
-        season_id: activeSeason!.id,
-        date: date,
-        coffee_type: coffeeType,
-        gross_weight: gross,
-        moisture_content: moist,
-        standard_moisture: std,
-        deduction_weight: deduction,
-        payable_weight: payable,
-        buying_price: price,
-        total_amount: totalAmount,
-        advance_deducted: advDed,
-        cash_paid: cashToPay,
-        field_agent_id: profile?.id || '',
+      setSavedPurchase({
+        ...finalPurchaseData,
+        farmers: isNewFarmer ? { ...selectedFarmer, ...newFarmerData } : selectedFarmer,
+        profiles: { full_name: profile?.full_name }
       });
-
-      // Update the advance balance if a deduction was made
-      if (advDed > 0 && farmerAdvance) {
-        const newDeducted = (farmerAdvance.deducted || 0) + advDed;
-        const newRemaining = farmerAdvance.amount - newDeducted;
-        
-        await advancesService.update(farmerAdvance.id, {
-          deducted: newDeducted
-        });
-      }
-
       setToast(true);
-      setTimeout(() => {
-        setToast(false);
-        navigate("/purchases");
-      }, 2000);
+      setShowReceipt(true);
+      
+      // Clear draft on successful save
+      if (!isEditMode) {
+        localStorage.removeItem(PURCHASE_DRAFT_KEY);
+      }
+      
+      // We don't navigate immediately anymore so the user can print the receipt
     } catch (err: any) {
       console.error("Error saving purchase:", err);
       setErrors({ submit: err.message || "Failed to save purchase" });
@@ -224,7 +397,7 @@ export default function PurchaseEntry() {
         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-gray-100 shadow-sm">
           <Loader2 className="w-10 h-10 text-green-700 animate-spin mb-4" />
           <h2 className="text-xl font-bold text-gray-900">Preparing Purchase Entry...</h2>
-          <p className="text-gray-500 mt-2">Fetching the latest farmers and buying prices</p>
+          <p className="text-gray-500 mt-2">Fetching the latest clients and buying prices</p>
         </div>
       </Layout>
     );
@@ -232,12 +405,16 @@ export default function PurchaseEntry() {
 
   return (
     <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Purchases", href: "/purchases" }, { label: "New Purchase" }]}>
-      <SuccessToast visible={toast} />
+      <SuccessToast visible={toast} isOnline={isOnline} />
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>New Purchase Entry</h1>
-          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>Record a new coffee purchase from a farmer</p>
+      <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>
+        {isEditMode ? "Edit Purchase" : "New Purchase Entry"}
+      </h1>
+      <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>
+        {isEditMode ? "Update the details for an existing purchase" : "Record a new coffee purchase from a client"}
+      </p>
         </div>
         {!activeSeason && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium">
@@ -245,10 +422,6 @@ export default function PurchaseEntry() {
             No active season! Entries may be restricted.
           </div>
         )}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl" style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0" }}>
-          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#16A34A" }} />
-          <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 500, color: "#14532D" }}>Live Calculation Active</span>
-        </div>
       </div>
 
       {errors.submit && (
@@ -262,23 +435,22 @@ export default function PurchaseEntry() {
         {/* Left: Forms */}
         <div className="flex-1 space-y-5">
 
-          {/* 1. Farmer Information */}
           <div className="bg-white rounded-xl p-6" style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #F1F5F9" }}>
             <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-gray-100">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: "#f0fdf4" }}>
                 <User size={15} color="#14532D" />
               </div>
               <div>
-                <div style={{ fontFamily: "Inter, sans-serif", fontSize: "15px", fontWeight: 600, color: "#111827" }}>Farmer Information</div>
-                <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>Select the farmer for this purchase</div>
+                <div style={{ fontFamily: "Inter, sans-serif", fontSize: "15px", fontWeight: 600, color: "#111827" }}>Client Information</div>
+                <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>Select the client for this purchase</div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Farmer Name Dropdown */}
+              {/* Client Name Dropdown */}
               <div className="md:col-span-2">
                 <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                  Farmer Name <span style={{ color: "#DC2626" }}>*</span>
+                  Client Name <span style={{ color: "#DC2626" }}>*</span>
                 </label>
                 <div className="relative">
                   <div
@@ -305,7 +477,7 @@ export default function PurchaseEntry() {
                       ) : (
                         <input
                           type="text"
-                          placeholder="Search farmer by name or village..."
+                          placeholder="Search client by name or village..."
                           value={farmerSearch}
                           onChange={e => { setFarmerSearch(e.target.value); setFarmerDropdownOpen(true); }}
                           onClick={e => { e.stopPropagation(); setFarmerDropdownOpen(true); }}
@@ -330,7 +502,7 @@ export default function PurchaseEntry() {
                               <UserPlus size={15} />
                             </div>
                             <div>
-                              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>Add "{farmerSearch}" as new farmer</div>
+                              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>Add "{farmerSearch}" as new client</div>
                               <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#9CA3AF" }}>Create a new profile for this client</div>
                             </div>
                           </div>
@@ -374,13 +546,39 @@ export default function PurchaseEntry() {
                 </div>
                 {errors.farmer && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.farmer}</p>}
               </div>
+              {/* Date */}
+              <div>
+                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>Purchase Date</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                  className={inputClass("")}
+                  style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}
+                />
+              </div>
 
-              {/* New Farmer Addition Fields */}
+              {/* EUDR Number */}
+              <div>
+                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
+                  EUDR Number (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={eudrNumber}
+                  onChange={e => setEudrNumber(e.target.value)}
+                  placeholder="Enter EUDR number"
+                  className={inputClass("")}
+                  style={{ fontFamily: "Inter, sans-serif", fontSize: "13px" }}
+                />
+              </div>
+
+              {/* New Client Addition Fields */}
               {isNewFarmer ? (
                 <>
                   <div>
                     <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                      New Farmer Phone <span style={{ color: "#DC2626" }}>*</span>
+                      New Client Phone <span style={{ color: "#DC2626" }}>*</span>
                     </label>
                     <input
                       type="text"
@@ -394,7 +592,7 @@ export default function PurchaseEntry() {
                   </div>
                   <div>
                     <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                      New Farmer Village <span style={{ color: "#DC2626" }}>*</span>
+                      New Client Village <span style={{ color: "#DC2626" }}>*</span>
                     </label>
                     <input
                       type="text"
@@ -436,18 +634,6 @@ export default function PurchaseEntry() {
                   </div>
                 </>
               )}
-
-              {/* Date */}
-              <div>
-                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>Purchase Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={e => setDate(e.target.value)}
-                  className={inputClass("")}
-                  style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}
-                />
-              </div>
             </div>
           </div>
 
@@ -468,19 +654,19 @@ export default function PurchaseEntry() {
               <div className="md:col-span-2">
                 <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>Coffee Type</label>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {(["Robusta", "Arabica", "Red", "Kase"] as const).map(type => (
+                  {(["Kiboko", "Red", "Kase"] as const).map(type => (
                     <button
                       key={type}
                       onClick={() => setCoffeeType(type)}
                       className="py-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1"
                       style={{
                         borderColor: coffeeType === type ? 
-                          (type === 'Robusta' ? '#14532D' : type === 'Arabica' ? '#6F4E37' : type === 'Red' ? '#DC2626' : '#A855F7') : '#E5E7EB',
+                          (type === 'Kiboko' ? '#14532D' : type === 'Red' ? '#DC2626' : '#A855F7') : '#E5E7EB',
                         backgroundColor: coffeeType === type ? 
-                          (type === 'Robusta' ? '#f0fdf4' : type === 'Arabica' ? '#fdf6f3' : type === 'Red' ? '#fef2f2' : '#fdf4ff') : '#fff',
+                          (type === 'Kiboko' ? '#f0fdf4' : type === 'Red' ? '#fef2f2' : '#fdf4ff') : '#fff',
                         fontFamily: "Inter, sans-serif",
                         color: coffeeType === type ? 
-                          (type === 'Robusta' ? '#14532D' : type === 'Arabica' ? '#6F4E37' : type === 'Red' ? '#DC2626' : '#A855F7') : '#6B7280'
+                          (type === 'Kiboko' ? '#14532D' : type === 'Red' ? '#DC2626' : '#A855F7') : '#6B7280'
                       }}
                     >
                       <div className="flex items-center gap-2">
@@ -504,7 +690,7 @@ export default function PurchaseEntry() {
                   <input
                     type="number"
                     min="0"
-                    step="0.1"
+                    step="any"
                     value={grossWeight}
                     onChange={e => setGrossWeight(e.target.value)}
                     placeholder="0.00"
@@ -516,47 +702,63 @@ export default function PurchaseEntry() {
                 {errors.grossWeight && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.grossWeight}</p>}
               </div>
 
-              {/* Moisture Content */}
-              <div>
-                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                  Moisture Content (%) <span style={{ color: "#DC2626" }}>*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={moisture}
-                    onChange={e => setMoisture(e.target.value)}
-                    placeholder="0.0"
-                    className={inputClass("moisture")}
-                    style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151", paddingRight: "32px" }}
-                  />
-                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>%</span>
-                </div>
-                {errors.moisture && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.moisture}</p>}
-              </div>
+              {/* Moisture Content & Standard Moisture (Only for Kase) */}
+              {coffeeType === "Kase" && (
+                <>
+                  <div>
+                    <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
+                      Moisture Content (%) <span style={{ color: "#DC2626" }}>*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="any"
+                        value={moisture}
+                        onChange={e => setMoisture(e.target.value)}
+                        placeholder="0.0"
+                        className={inputClass("moisture")}
+                        style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151", paddingRight: "32px" }}
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>%</span>
+                    </div>
+                    {errors.moisture && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.moisture}</p>}
+                  </div>
 
-              {/* Standard Moisture */}
-              <div>
-                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                  Standard Moisture (%)
-                  <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "#fef9c3", color: "#854d0e", fontSize: "10px" }}>Admin</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={standardMoisture}
-                    onChange={e => setStandardMoisture(e.target.value)}
-                    className={inputClass("")}
-                    style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151", paddingRight: "32px" }}
-                  />
-                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>%</span>
-                </div>
-              </div>
+                  <div>
+                    <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
+                      Standard Moisture (%)
+                      {profile?.role === 'Field Agent' ? (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "#e2e8f0", color: "#475569", fontSize: "10px" }}>Fixed</span>
+                      ) : (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "#fef9c3", color: "#854d0e", fontSize: "10px" }}>Admin</span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={standardMoisture}
+                        onChange={e => setStandardMoisture(e.target.value)}
+                        disabled={profile?.role === 'Field Agent'}
+                        className={inputClass("")}
+                        style={{ 
+                          fontFamily: "Inter, sans-serif", 
+                          fontSize: "13px", 
+                          color: "#374151", 
+                          paddingRight: "32px",
+                          backgroundColor: profile?.role === 'Field Agent' ? "#F9FAFB" : "#fff",
+                          cursor: profile?.role === 'Field Agent' ? "not-allowed" : "text",
+                          opacity: profile?.role === 'Field Agent' ? 0.7 : 1
+                        }}
+                      />
+                      <span className="absolute right-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>%</span>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Active Price Display */}
               <div>
@@ -642,35 +844,65 @@ export default function PurchaseEntry() {
                 <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#86efac", marginTop: "2px" }}>Updates automatically as you type</div>
               </div>
 
-              {/* Body */}
               <div className="p-5 space-y-0" style={{ backgroundColor: "#f0fdf4" }}>
                 {/* Inputs summary */}
                 <div className="flex justify-between items-center py-3 border-b border-green-200">
                   <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Gross Weight</span>
                   <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{gross > 0 ? `${gross.toFixed(2)} kg` : "—"}</span>
                 </div>
-                <div className="flex justify-between items-center py-3 border-b border-green-200">
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Moisture Content</span>
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{moist > 0 ? `${moist.toFixed(1)}%` : "—"}</span>
-                </div>
-                <div className="flex justify-between items-center py-3 border-b border-green-200">
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Standard Moisture</span>
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{std}%</span>
-                </div>
+                {coffeeType === "Kase" && (
+                  <>
+                    <div className="flex justify-between items-center py-3 border-b border-green-200">
+                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Moisture Content</span>
+                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{moist > 0 ? `${moist.toFixed(1)}%` : "—"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-3 border-b border-green-200">
+                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Standard Moisture</span>
+                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{std}%</span>
+                    </div>
+                  </>
+                )}
 
                 <div className="mt-1 pt-1">
-                  <div className="flex justify-between items-center py-3 border-b border-green-200">
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Moisture Loss %</span>
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: moistureLoss > 0 ? "#DC2626" : "#6B7280" }}>
-                      {gross > 0 && moist > std ? `${moistureLoss.toFixed(2)}%` : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-3 border-b border-green-200">
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Deduction</span>
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: deduction > 0 ? "#DC2626" : "#6B7280" }}>
-                      {deduction > 0 ? `−${deduction.toFixed(2)} kg` : "—"}
-                    </span>
-                  </div>
+                  {coffeeType === "Kase" && (
+                    <>
+                      <div className="flex justify-between items-center py-3 border-b border-green-200">
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Moisture Loss %</span>
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: moistureLoss > 0 ? "#DC2626" : "#6B7280" }}>
+                          {gross > 0 && moist > std ? `${moistureLoss.toFixed(2)}%` : "—"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center py-3 border-b border-green-200">
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Deduction (kg)</span>
+                        {profile?.role === 'Admin' || profile?.role === 'Super Admin' ? (
+                          <div className="flex items-center gap-1">
+                            {manualDeduction !== "" && (
+                              <button 
+                                onClick={() => setManualDeduction("")}
+                                className="p-1 hover:bg-green-100 rounded text-[10px] text-green-700 font-bold uppercase"
+                                title="Reset to auto"
+                              >
+                                Auto
+                              </button>
+                            )}
+                            <input
+                              type="number"
+                              step="any"
+                              value={manualDeduction !== "" ? manualDeduction : autoDeduction > 0 ? autoDeduction.toString() : ""}
+                              onChange={(e) => setManualDeduction(e.target.value)}
+                              className="w-20 text-right bg-white/50 border-b border-green-300 focus:border-green-600 outline-none rounded px-1"
+                              style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: "#DC2626" }}
+                              placeholder={autoDeduction > 0 ? autoDeduction.toString() : "0"}
+                            />
+                          </div>
+                        ) : (
+                          <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: deduction > 0 ? "#DC2626" : "#6B7280" }}>
+                            {deduction > 0 ? `−${deduction.toFixed(2)} kg` : "—"}
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  )}
                   <div className="flex justify-between items-center py-3 border-b border-green-200">
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#14532D" }}>Payable Weight</span>
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: "#14532D" }}>
@@ -698,7 +930,7 @@ export default function PurchaseEntry() {
                 {/* Cash to Pay - Highlighted */}
                 <div className="mt-2 p-4 rounded-xl" style={{ backgroundColor: "#14532D", marginTop: "8px" }}>
                   <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#86efac", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
-                    Cash to Pay Farmer
+                    Cash to Pay Client
                   </div>
                   <div style={{ fontFamily: "Inter, sans-serif", fontSize: "28px", fontWeight: 800, color: "#ffffff", lineHeight: 1.1 }}>
                     {cashToPay > 0 ? `UGX ${Math.round(cashToPay).toLocaleString()}` : "UGX 0"}
@@ -746,12 +978,22 @@ export default function PurchaseEntry() {
             <div className="mt-3 p-3 rounded-xl flex items-start gap-2" style={{ backgroundColor: "#fffbeb", border: "1px solid #fde68a" }}>
               <Info size={13} color="#F59E0B" style={{ flexShrink: 0, marginTop: "1px" }} />
               <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#92400e", lineHeight: 1.5 }}>
-                Formula: Deduction = Gross × (Moisture − Std) ÷ (100 − Std)
+                Formula: Deduction = Gross × (Moisture − Std) × 1.5%
               </p>
             </div>
           </div>
         </div>
       </div>
+{/* Added missing parent for siblings if needed, but Layout usually handles it */}
+      <PurchaseReceiptModal 
+        isOpen={showReceipt} 
+        onClose={() => {
+          setShowReceipt(false);
+          setToast(false);
+          navigate("/purchases");
+        }} 
+        purchase={savedPurchase}
+      />
     </Layout>
   );
 }

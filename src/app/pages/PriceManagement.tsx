@@ -3,10 +3,12 @@ import { Layout } from "../components/Layout";
 import { useNavigate } from "react-router";
 import {
   Tag, CheckCircle, AlertTriangle, TrendingUp, TrendingDown,
-  Minus, Clock, Edit3, Save, X, History, Info, ChevronDown, ChevronUp, Loader2
+  Minus, Clock, Edit3, Save, X, History, Info, ChevronDown, ChevronUp, Loader2, Share2
 } from "lucide-react";
+import { SharePricesModal } from "../components/SharePricesModal";
 import { pricesService, BuyingPrice } from "../services/pricesService";
-import { useAuth } from "../hooks/useAuth";
+import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
+import { getEATDateString } from "../utils/dateUtils";
 
 function formatUGX(v: number) {
   return `UGX ${Math.round(v).toLocaleString()}`;
@@ -57,46 +59,77 @@ export default function PriceManagement() {
   const [prices, setPrices] = useState<BuyingPrice[]>([]);
   const [todayEntry, setTodayEntry] = useState<BuyingPrice | null>(null);
   const [yesterdayEntry, setYesterdayEntry] = useState<BuyingPrice | null>(null);
-  const [today] = useState(() => new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [today] = useState(() => getEATDateString());
+  const [toast, setToast] = useState(false);
 
 
   const [editing, setEditing] = useState(false);
-  const [robustaInput, setRobustaInput] = useState("");
-  const [arabicaInput, setArabicaInput] = useState("");
+  const [kibokoInput, setKibokoInput] = useState("");
   const [redInput, setRedInput] = useState("");
   const [kaseInput, setKaseInput] = useState("");
   const [notesInput, setNotesInput] = useState("");
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(true);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const DRAFT_KEY = 'price_management_draft';
+
+  // Load draft on mount
+  useEffect(() => {
+    const draft = localStorage.getItem(DRAFT_KEY);
+    if (draft) {
+      try {
+        const parsed = JSON.parse(draft);
+        if (parsed.kibokoInput) setKibokoInput(parsed.kibokoInput);
+        if (parsed.redInput) setRedInput(parsed.redInput);
+        if (parsed.kaseInput) setKaseInput(parsed.kaseInput);
+        if (parsed.notesInput) setNotesInput(parsed.notesInput);
+      } catch (e) {
+        console.error("Failed to load draft:", e);
+      }
+    }
+  }, []);
+
+  // Save draft on change
+  useEffect(() => {
+    const draft = { kibokoInput, redInput, kaseInput, notesInput };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [kibokoInput, redInput, kaseInput, notesInput]);
 
   useEffect(() => {
-    async function fetchPrices() {
+    const fetchData = async () => {
       try {
         setLoading(true);
-        const history = await pricesService.getHistory(30);
+        const adminId = getEffectiveAdminId(profile);
+        if (!adminId) return;
+
+        const [history, latest] = await Promise.all([
+          pricesService.getHistory(30, adminId),
+          pricesService.getLatest(adminId)
+        ]);
+        
         setPrices(history);
         
+        const yesterdayStr = getEATDateString(-1);
+        
+        const latestDate = latest?.date;
         const todayPrice = history.find(p => p.date === today);
-        const yesterdayDate = new Date();
-        yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-        const yesterdayStr = yesterdayDate.toISOString().split('T')[0];
         const yesterdayPrice = history.find(p => p.date === yesterdayStr);
 
         setTodayEntry(todayPrice || null);
         setYesterdayEntry(yesterdayPrice || null);
 
         if (todayPrice) {
-          setRobustaInput(String(todayPrice.robusta_price));
-          setArabicaInput(String(todayPrice.arabica_price));
+          setKibokoInput(String(todayPrice.kiboko_price));
           setRedInput(String(todayPrice.red_price || 0));
           setKaseInput(String(todayPrice.kase_price || 0));
           setNotesInput(todayPrice.notes || "");
         } else {
           setEditing(true);
           if (yesterdayPrice) {
-            setRobustaInput(String(yesterdayPrice.robusta_price));
-            setArabicaInput(String(yesterdayPrice.arabica_price));
+            setKibokoInput(String(yesterdayPrice.kiboko_price));
             setRedInput(String(yesterdayPrice.red_price || 0));
             setKaseInput(String(yesterdayPrice.kase_price || 0));
           }
@@ -107,7 +140,7 @@ export default function PriceManagement() {
         setLoading(false);
       }
     }
-    fetchPrices();
+    fetchData();
   }, [today]);
 
   const handleEdit = () => {
@@ -117,8 +150,7 @@ export default function PriceManagement() {
 
   const handleCancel = () => {
     if (todayEntry) {
-      setRobustaInput(String(todayEntry.robusta_price));
-      setArabicaInput(String(todayEntry.arabica_price));
+      setKibokoInput(String(todayEntry.kiboko_price));
       setRedInput(String(todayEntry.red_price || 0));
       setKaseInput(String(todayEntry.kase_price || 0));
       setNotesInput(todayEntry.notes || "");
@@ -129,41 +161,47 @@ export default function PriceManagement() {
 
   const handleSave = async () => {
     const e: Record<string, string> = {};
-    const r = parseFloat(robustaInput);
-    const a = parseFloat(arabicaInput);
+    const k_b = parseFloat(kibokoInput);
     const red = parseFloat(redInput);
     const k = parseFloat(kaseInput);
 
-    if (!robustaInput || isNaN(r) || r <= 0) e.robusta = "Enter a valid Robusta price";
-    if (!arabicaInput || isNaN(a) || a <= 0) e.arabica = "Enter a valid Arabica price";
+    if (!kibokoInput || isNaN(k_b) || k_b <= 0) e.kiboko = "Enter a valid Kiboko price";
     if (!redInput || isNaN(red) || red <= 0) e.red = "Enter a valid Red price";
     if (!kaseInput || isNaN(k) || k <= 0) e.kase = "Enter a valid Kase price";
 
     if (Object.keys(e).length > 0) { setErrors(e); return; }
     
+    const adminId = getEffectiveAdminId(profile);
+    if (!adminId) {
+      setSaveError("System Error: Your user profile is missing. Please contact support or run the recovery script.");
+      return;
+    }
+
+    setSaveError(null);
     try {
       setSubmitting(true);
       await pricesService.setPrices({
         date: today,
-        robusta_price: r,
-        arabica_price: a,
+        kiboko_price: k_b,
         red_price: red,
         kase_price: k,
         notes: notesInput,
-        set_by: profile?.id || null
+        set_by: profile?.id || null,
+        admin_id: adminId,
       });
 
       setSaved(true);
       setEditing(false);
+      localStorage.removeItem(DRAFT_KEY);
       setTimeout(() => setSaved(false), 3000);
       
       // Refresh history
-      const history = await pricesService.getHistory(30);
+      const history = await pricesService.getHistory(30, adminId!);
       setPrices(history);
       setTodayEntry(history.find(p => p.date === today) || null);
     } catch (err: any) {
       console.error("Error saving prices:", err);
-      // Optional: Set a toast error
+      setSaveError(err?.message || "Failed to save prices. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -174,8 +212,7 @@ export default function PriceManagement() {
       errors[field] ? "border-red-400 bg-red-50" : "border-gray-200 bg-white"
     } focus:border-[#14532D] focus:ring-2 focus:ring-[#14532D]/10`;
 
-  const robustaChange = todayEntry && yesterdayEntry ? todayEntry.robusta_price - yesterdayEntry.robusta_price : null;
-  const arabicaChange = todayEntry && yesterdayEntry ? todayEntry.arabica_price - yesterdayEntry.arabica_price : null;
+  const kibokoChange = todayEntry && yesterdayEntry ? todayEntry.kiboko_price - yesterdayEntry.kiboko_price : null;
 
   // Build history with deltas
   const historyWithDelta = prices.map((entry, idx) => {
@@ -211,7 +248,7 @@ export default function PriceManagement() {
         <div>
           <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>Price Management</h1>
           <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>
-            Set and manage daily buying prices for Robusta and Arabica coffee
+            Set and manage daily buying prices for Kiboko, Red, and Kase coffee
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -265,34 +302,19 @@ export default function PriceManagement() {
               /* Display mode */
               <div>
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                  {/* Robusta Price */}
+                  {/* Kiboko Price */}
                   <div className="p-4 rounded-xl" style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0" }}>
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#14532D" }} />
                       <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Robusta
+                        Kiboko
                       </span>
                     </div>
                      <div style={{ fontFamily: "Inter, sans-serif", fontSize: "24px", fontWeight: 700, color: "#14532D" }}>
-                      {formatUGX(todayEntry.robusta_price)}
+                      {formatUGX(todayEntry.kiboko_price)}
                     </div>
                     <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#16A34A", marginBottom: "8px" }}>per kilogram</div>
-                    <PriceChange current={todayEntry.robusta_price} previous={yesterdayEntry?.robusta_price ?? null} label="vs yesterday" />
-                  </div>
-
-                  {/* Arabica Price */}
-                  <div className="p-4 rounded-xl" style={{ backgroundColor: "#fdf6f3", border: "1px solid #e8d5cc" }}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#6F4E37" }} />
-                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Arabica
-                      </span>
-                    </div>
-                     <div style={{ fontFamily: "Inter, sans-serif", fontSize: "24px", fontWeight: 700, color: "#6F4E37" }}>
-                      {formatUGX(todayEntry.arabica_price)}
-                    </div>
-                    <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#92400e", marginBottom: "8px" }}>per kilogram</div>
-                    <PriceChange current={todayEntry.arabica_price} previous={yesterdayEntry?.arabica_price ?? null} label="vs yesterday" />
+                    <PriceChange current={todayEntry.kiboko_price} previous={yesterdayEntry?.kiboko_price ?? null} label="vs yesterday" />
                   </div>
 
                   {/* Red Price */}
@@ -333,15 +355,26 @@ export default function PriceManagement() {
                   </div>
                 )}
 
-                <button
-                  onClick={handleEdit}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all hover:opacity-90"
-                  style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600 }}
-                >
-                  <Edit3 size={14} />
-                  Update Today's Prices
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => setShowShareModal(true)}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all hover:opacity-90"
+                    style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600 }}
+                  >
+                    <Share2 size={15} />
+                    Share Prices
+                  </button>
+                  <button
+                    onClick={handleEdit}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all hover:bg-gray-50 border border-gray-200"
+                    style={{ color: "#374151", fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600 }}
+                  >
+                    <Edit3 size={14} />
+                    Edit
+                  </button>
+                </div>
               </div>
+
             ) : (
               /* Edit / Set mode */
               <div>
@@ -360,60 +393,33 @@ export default function PriceManagement() {
                     <History size={13} color="#6B7280" />
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>
                       Yesterday's prices:&nbsp;
-                       <strong style={{ color: "#14532D" }}>Robusta {formatUGX(yesterdayEntry.robusta_price)}</strong>
-                      &nbsp;·&nbsp;
-                      <strong style={{ color: "#6F4E37" }}>Arabica {formatUGX(yesterdayEntry.arabica_price)}</strong>
+                       <strong style={{ color: "#14532D" }}>Kiboko {formatUGX(yesterdayEntry.kiboko_price)}</strong>
                     </span>
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  {/* Robusta Input */}
+                  {/* Kiboko Input */}
                   <div>
                     <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                      Robusta Price (UGX/kg) <span style={{ color: "#DC2626" }}>*</span>
+                      Kiboko Price (UGX/kg) <span style={{ color: "#DC2626" }}>*</span>
                     </label>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>UGX</span>
                       <input
                         type="number"
                         min="1"
-                        value={robustaInput}
-                        onChange={e => setRobustaInput(e.target.value)}
+                        value={kibokoInput}
+                        onChange={e => setKibokoInput(e.target.value)}
                         placeholder="e.g. 5400"
-                        className={inputBase("robusta")}
+                        className={inputBase("kiboko")}
                         style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#14532D", paddingLeft: "52px" }}
                       />
                     </div>
-                    {errors.robusta && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.robusta}</p>}
-                     {robustaInput && yesterdayEntry && (
+                    {errors.kiboko && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.kiboko}</p>}
+                     {kibokoInput && yesterdayEntry && (
                       <div className="mt-1.5">
-                        <PriceChange current={parseFloat(robustaInput) || 0} previous={yesterdayEntry.robusta_price} label="vs yesterday" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Arabica Input */}
-                  <div>
-                    <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                      Arabica Price (UGX/kg) <span style={{ color: "#DC2626" }}>*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>UGX</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={arabicaInput}
-                        onChange={e => setArabicaInput(e.target.value)}
-                        placeholder="e.g. 7100"
-                        className={inputBase("arabica")}
-                        style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#6F4E37", paddingLeft: "52px" }}
-                      />
-                    </div>
-                    {errors.arabica && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.arabica}</p>}
-                     {arabicaInput && yesterdayEntry && (
-                      <div className="mt-1.5">
-                        <PriceChange current={parseFloat(arabicaInput) || 0} previous={yesterdayEntry.arabica_price} label="vs yesterday" />
+                        <PriceChange current={parseFloat(kibokoInput) || 0} previous={yesterdayEntry.kiboko_price} label="vs yesterday" />
                       </div>
                     )}
                   </div>
@@ -484,6 +490,12 @@ export default function PriceManagement() {
                   </div>
                 </div>
 
+                {saveError && (
+                  <div className="flex items-start gap-2 px-4 py-3 rounded-xl mb-3" style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca" }}>
+                    <AlertTriangle size={15} color="#DC2626" style={{ marginTop: "1px", flexShrink: 0 }} />
+                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#991b1b" }}>{saveError}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                    <button
                     onClick={handleSave}
@@ -526,70 +538,140 @@ export default function PriceManagement() {
             </button>
 
             {showHistory && (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr style={{ backgroundColor: "#F8FAFC" }}>
-                      {["Date", "Robusta (UGX)", "Δ Robusta", "Arabica (UGX)", "Δ Arabica", "Set By", "Time", "Notes"].map(h => (
-                        <th key={h} className="px-4 py-3 text-left" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyWithDelta.map(({ entry, prev }, i) => {
-                      const isToday = entry.date === today;
-                      return (
-                        <tr key={entry.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors" style={{ backgroundColor: isToday ? "#f0fdf4" : undefined }}>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <div>
-                                <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: isToday ? 600 : 400, color: "#111827" }}>
-                                  {formatDate(entry.date)}
+              <>
+                {/* Desktop View */}
+                <div className="hidden lg:block overflow-x-auto max-h-[600px]">
+                  <table className="w-full relative">
+                    <thead className="sticky top-0 z-10">
+                      <tr style={{ backgroundColor: "#F8FAFC" }}>
+                        {["Date", "Kiboko (UGX)", "Δ Kiboko", "Red (UGX)", "Δ Red", "Kase (UGX)", "Δ Kase", "Set By", "Time", "Notes"].map(h => (
+                          <th key={h} className="px-4 py-3 text-left" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyWithDelta.map(({ entry, prev }, i) => {
+                        const isToday = entry.date === today;
+                        return (
+                          <tr key={entry.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors" style={{ backgroundColor: isToday ? "#f0fdf4" : undefined }}>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: isToday ? 600 : 400, color: "#111827" }}>
+                                    {formatDate(entry.date)}
+                                  </div>
+                                  {isToday && (
+                                    <span className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter", fontSize: "10px", fontWeight: 600 }}>
+                                      TODAY
+                                    </span>
+                                  )}
                                 </div>
-                                {isToday && (
-                                  <span className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter", fontSize: "10px", fontWeight: 600 }}>
-                                    TODAY
-                                  </span>
-                                )}
                               </div>
+                            </td>
+                             <td className="px-4 py-3">
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#14532D" }}>
+                                {entry.kiboko_price.toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <TablePriceChange current={entry.kiboko_price} previous={prev?.kiboko_price ?? null} />
+                            </td>
+                             <td className="px-4 py-3">
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#DC2626" }}>
+                                {entry.red_price.toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <TablePriceChange current={entry.red_price} previous={prev?.red_price ?? null} />
+                            </td>
+                             <td className="px-4 py-3">
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#A855F7" }}>
+                                {entry.kase_price.toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <TablePriceChange current={entry.kase_price} previous={prev?.kase_price ?? null} />
+                            </td>
+                             <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>
+                              {entry.profiles?.full_name || "System"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1">
+                                <Clock size={11} color="#9CA3AF" />
+                                <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>{new Date(entry.set_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF", maxWidth: "160px" }}>
+                              {entry.notes || "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile View */}
+                <div className="lg:hidden flex flex-col divide-y divide-gray-50">
+                  {historyWithDelta.map(({ entry, prev }) => {
+                    const isToday = entry.date === today;
+                    return (
+                      <div key={entry.id} className="p-4 flex flex-col gap-3 hover:bg-gray-50 transition-colors" style={{ backgroundColor: isToday ? "#f0fdf4" : undefined }}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: isToday ? 700 : 600, color: isToday ? "#14532D" : "#111827" }}>
+                                {formatDate(entry.date)}
+                              </div>
+                              {isToday && (
+                                <span className="px-1.5 py-0.5 rounded text-xs" style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter", fontSize: "10px", fontWeight: 600 }}>TODAY</span>
+                              )}
                             </div>
-                          </td>
-                           <td className="px-4 py-3">
-                            <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#14532D" }}>
-                              {entry.robusta_price.toLocaleString()}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <TablePriceChange current={entry.robusta_price} previous={prev?.robusta_price ?? null} />
-                          </td>
-                          <td className="px-4 py-3">
-                            <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#6F4E37" }}>
-                              {entry.arabica_price.toLocaleString()}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <TablePriceChange current={entry.arabica_price} previous={prev?.arabica_price ?? null} />
-                          </td>
-                           <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>
-                            {entry.profiles?.full_name || "System"}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 mt-1">
                               <Clock size={11} color="#9CA3AF" />
-                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>{new Date(entry.set_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280" }}>
+                                {new Date(entry.set_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {entry.profiles?.full_name || "System"}
+                              </span>
                             </div>
-                          </td>
-                          <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF", maxWidth: "160px" }}>
-                            {entry.notes || "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 mt-1 bg-white p-3 rounded-xl border border-gray-100">
+                          <div>
+                            <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600, marginBottom: "2px" }}>Kiboko</div>
+                            <div className="flex items-baseline gap-2">
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#14532D" }}>{entry.kiboko_price.toLocaleString()}</span>
+                              <TablePriceChange current={entry.kiboko_price} previous={prev?.kiboko_price ?? null} />
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600, marginBottom: "2px" }}>Red</div>
+                            <div className="flex items-baseline gap-2">
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#DC2626" }}>{entry.red_price?.toLocaleString() ?? '—'}</span>
+                              <TablePriceChange current={entry.red_price} previous={prev?.red_price ?? null} />
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600, marginBottom: "2px" }}>Kase</div>
+                            <div className="flex items-baseline gap-2">
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#A855F7" }}>{entry.kase_price?.toLocaleString() ?? '—'}</span>
+                              <TablePriceChange current={entry.kase_price} previous={prev?.kase_price ?? null} />
+                            </div>
+                          </div>
+                          {entry.notes && (
+                            <div className="col-span-2 pt-2 border-t border-gray-50 flex items-start gap-1.5">
+                              <Info size={12} color="#9CA3AF" style={{ marginTop: "2px", flexShrink: 0 }} />
+                              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280", lineHeight: "1.4" }}>{entry.notes}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -602,15 +684,18 @@ export default function PriceManagement() {
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#111827", marginBottom: "12px" }}>
               14-Day Price Range
             </div>
-             {(["robusta_price", "arabica_price"] as const).map(type => {
-              const vals = prices.map(p => Number(p[type]));
+             {(["kiboko_price", "red_price", "kase_price"] as const).map(type => {
+              const vals = prices.map(p => Number(p[type])).filter(v => !isNaN(v));
+              if (vals.length === 0) return null;
               const min = Math.min(...vals);
               const max = Math.max(...vals);
               const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
               const current = todayEntry?.[type] ?? prices[0]?.[type];
-              const label = type === "robusta_price" ? "Robusta" : "Arabica";
-              const color = type === "robusta_price" ? "#14532D" : "#6F4E37";
-              const bg = type === "robusta_price" ? "#f0fdf4" : "#fdf6f3";
+              
+              const label = type === 'kiboko_price' ? "Kiboko" : type === 'red_price' ? "Red" : "Kase";
+              const color = type === 'kiboko_price' ? "#14532D" : type === 'red_price' ? "#DC2626" : "#A855F7";
+              const bg = type === 'kiboko_price' ? "#f0fdf4" : type === 'red_price' ? "#fef2f2" : "#fdf4ff";
+              
               return (
                 <div key={type} className="mb-4 last:mb-0 p-4 rounded-xl" style={{ backgroundColor: bg }}>
                   <div className="flex items-center gap-2 mb-3">
@@ -647,7 +732,6 @@ export default function PriceManagement() {
             <div className="space-y-2">
               {[
                 "Set prices before 8:00 AM daily",
-                "Arabica is always priced higher than Robusta",
                 "Prices are locked once a purchase is recorded",
                 "Historical prices cannot be edited",
                 "Add a reason when prices change by >5%",
@@ -661,6 +745,14 @@ export default function PriceManagement() {
           </div>
         </div>
       </div>
+      
+      <SharePricesModal 
+        isOpen={showShareModal} 
+        onClose={() => setShowShareModal(false)}
+        prices={todayEntry}
+        dateStr={today}
+      />
     </Layout>
   );
 }
+

@@ -8,7 +8,8 @@ import { farmersService, Farmer } from "../services/farmersService";
 import { purchasesService, Purchase } from "../services/purchasesService";
 import { advancesService, Advance } from "../services/advancesService";
 import { ErrorState } from "../components/ErrorState";
-import { ArrowLeft, Phone, MapPin, Package, TrendingUp, CreditCard, ShoppingCart, Loader2 } from "lucide-react";
+import { ArrowLeft, Phone, MapPin, Package, TrendingUp, CreditCard, ShoppingCart, Loader2, Trash2 } from "lucide-react";
+import { useAuth } from "../hooks/useAuth";
 
 function formatUGX(v: number) { return `UGX ${Math.round(v).toLocaleString()}`; }
 
@@ -27,6 +28,7 @@ function Badge({ status }: { status: string }) {
 export default function FarmerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState("purchases");
 
   const [farmer, setFarmer] = useState<Farmer | null>(null);
@@ -34,6 +36,21 @@ export default function FarmerDetail() {
   const [farmerAdvances, setFarmerAdvances] = useState<Advance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!profile || (profile.role !== 'Admin' && profile.role !== 'Super Admin')) return;
+    if (window.confirm("Are you sure you want to deactivate this client? They will no longer appear in your active lists, but their historical records will be preserved. This action can be undone by an administrator later.")) {
+      try {
+        setIsDeleting(true);
+        await farmersService.delete(id!);
+        navigate("/farmers");
+      } catch (err: any) {
+        alert("Failed to delete client: " + err.message);
+        setIsDeleting(false);
+      }
+    }
+  };
 
   const fetchData = async () => {
     if (!id) return;
@@ -61,10 +78,10 @@ export default function FarmerDetail() {
 
   if (loading) {
     return (
-      <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Farmers", href: "/farmers" }, { label: "Loading..." }]}>
+      <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Clients", href: "/farmers" }, { label: "Loading..." }]}>
         <div className="flex flex-col items-center justify-center py-20">
           <Loader2 className="w-8 h-8 text-green-700 animate-spin mb-4" />
-          <p className="text-gray-500 font-medium">Loading farmer details...</p>
+          <p className="text-gray-500 font-medium">Loading client details...</p>
         </div>
       </Layout>
     );
@@ -72,10 +89,10 @@ export default function FarmerDetail() {
 
   if (error || !farmer) {
     return (
-      <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Farmers", href: "/farmers" }, { label: "Error" }]}>
+      <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Clients", href: "/farmers" }, { label: "Error" }]}>
         <ErrorState
-          title="Couldn't Load Farmer"
-          message={error || "Farmer not found"}
+          title="Couldn't Load Client"
+          message={error || "Client not found"}
           onRetry={fetchData}
         />
       </Layout>
@@ -102,7 +119,7 @@ export default function FarmerDetail() {
   ];
 
   return (
-    <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Farmers", href: "/farmers" }, { label: farmer.name }]}>
+    <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Clients", href: "/farmers" }, { label: farmer.name }]}>
       {/* Back + Header */}
       <div className="flex items-center gap-4 mb-6">
         <button
@@ -115,11 +132,22 @@ export default function FarmerDetail() {
         </button>
         <div>
           <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>{farmer.name}</h1>
-          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>Farmer ID: {farmer.id} · Season 2024/2025</p>
+          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>Client ID: {farmer.id} · Season 2024/2025</p>
         </div>
         <div className="ml-auto flex gap-2">
+          {(profile?.role === 'Admin' || profile?.role === 'Super Admin') && (
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl hover:opacity-90 transition-all disabled:opacity-50"
+              style={{ backgroundColor: "#DC2626", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600 }}
+            >
+              {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              Delete Client
+            </button>
+          )}
           <button
-            onClick={() => navigate("/purchases/new")}
+            onClick={() => navigate(`/purchases/new?farmerId=${farmer.id}`)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl hover:opacity-90 transition-all"
             style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600 }}
           >
@@ -148,6 +176,12 @@ export default function FarmerDetail() {
                 <MapPin size={12} color="#9CA3AF" />
                 <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280" }}>{farmer.village}{farmer.region ? `, ${farmer.region}` : ""}</span>
               </div>
+              {farmer.eudr_number && (
+                <div className="flex items-center gap-1.5 mt-1.5 px-2 py-0.5 rounded-md bg-green-50 w-fit">
+                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "10px", fontWeight: 700, color: "#14532D", textTransform: "uppercase" }}>EUDR:</span>
+                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#14532D" }}>{farmer.eudr_number}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -156,8 +190,8 @@ export default function FarmerDetail() {
             {[
               { icon: Package, label: "Deliveries", value: `${farmerPurchases.length}`, color: "#14532D", bg: "#f0fdf4" },
               { icon: TrendingUp, label: "Total Supplied", value: `${totalWeight.toFixed(0)} kg`, color: "#6F4E37", bg: "#fdf6f3" },
-              { icon: TrendingUp, label: "Total Value", value: `${formatUGX(Math.round(totalValue / 1000))}K`, color: "#16A34A", bg: "#f0fdf4" },
-              { icon: CreditCard, label: "Advance Balance", value: activeAdvance ? `${formatUGX(Math.round(activeAdvance.remaining / 1000))}K` : "Cleared", color: activeAdvance ? "#DC2626" : "#16A34A", bg: activeAdvance ? "#fef2f2" : "#f0fdf4" },
+              { icon: TrendingUp, label: "Total Value", value: formatUGX(totalValue), color: "#16A34A", bg: "#f0fdf4" },
+              { icon: CreditCard, label: "Advance Balance", value: activeAdvance ? formatUGX(activeAdvance.remaining) : "Cleared", color: activeAdvance ? "#DC2626" : "#16A34A", bg: activeAdvance ? "#fef2f2" : "#f0fdf4" },
             ].map(s => (
               <div key={s.label} className="p-3.5 rounded-xl" style={{ backgroundColor: s.bg, border: "1px solid transparent" }}>
                 <div className="flex items-center gap-2 mb-1.5">
@@ -197,109 +231,213 @@ export default function FarmerDetail() {
 
         {/* Purchase History Tab */}
         {activeTab === "purchases" && (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr style={{ backgroundColor: "#F8FAFC" }}>
-                  {["Date", "Type", "Gross Wt", "Moisture", "Deduction", "Payable Wt", "Total Amount", "Advance Ded.", "Cash Paid"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {farmerPurchases.length > 0 ? farmerPurchases.map((p) => (
-                  <tr key={p.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3.5">
-                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}>{p.date}</span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="px-2 py-0.5 rounded-full" style={{
-                        fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 500,
-                        backgroundColor: p.coffee_type === "Robusta" ? "#f0fdf4" : "#fef3c7",
-                        color: p.coffee_type === "Robusta" ? "#14532D" : "#92400e"
-                      }}>{p.coffee_type}</span>
-                    </td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}>{p.gross_weight} kg</td>
-                    <td className="px-4 py-3.5">
-                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: p.moisture_content > p.standard_moisture ? "#DC2626" : "#16A34A", fontWeight: 500 }}>{p.moisture_content}%</span>
-                    </td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#DC2626", fontWeight: 500 }}>−{(p.deduction_weight ?? 0).toFixed(2)} kg</td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#14532D" }}>{p.payable_weight.toFixed(2)} kg</td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#111827" }}>{formatUGX(Math.round(p.total_amount / 1000))}K</td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: p.advance_deducted > 0 ? "#DC2626" : "#9CA3AF" }}>
-                      {p.advance_deducted > 0 ? `−${formatUGX(Math.round(p.advance_deducted / 1000))}K` : "—"}
-                    </td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: "#14532D" }}>{formatUGX(Math.round(p.cash_paid / 1000))}K</td>
+          <>
+            {/* Desktop View */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr style={{ backgroundColor: "#F8FAFC" }}>
+                    {["Date", "Type", "Gross Wt", "Moisture", "Deduction", "Payable Wt", "Total Amount", "Advance Ded.", "Cash Paid"].map(h => (
+                      <th key={h} className="px-4 py-3 text-left whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                    ))}
                   </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={9} className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No purchase records found</td>
-                  </tr>
+                </thead>
+                <tbody>
+                  {farmerPurchases.length > 0 ? farmerPurchases.map((p) => (
+                    <tr key={p.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3.5">
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}>{p.date}</span>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span className="px-2 py-0.5 rounded-full" style={{
+                          fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 500,
+                          backgroundColor: p.coffee_type === "Kiboko" ? "#f0fdf4" : p.coffee_type === "Red" ? "#fef2f2" : "#fdf4ff",
+                          color: p.coffee_type === "Kiboko" ? "#14532D" : p.coffee_type === "Red" ? "#991b1b" : "#701a75"
+                        }}>{p.coffee_type}</span>
+                      </td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}>{p.gross_weight} kg</td>
+                      <td className="px-4 py-3.5">
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: p.moisture_content > p.standard_moisture ? "#DC2626" : "#16A34A", fontWeight: 500 }}>{p.moisture_content}%</span>
+                      </td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#DC2626", fontWeight: 500 }}>−{(p.deduction_weight ?? 0).toFixed(2)} kg</td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#14532D" }}>{p.payable_weight.toFixed(2)} kg</td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#111827" }}>{formatUGX(p.total_amount)}</td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: p.advance_deducted > 0 ? "#DC2626" : "#9CA3AF" }}>
+                        {p.advance_deducted > 0 ? `−${formatUGX(p.advance_deducted)}` : "—"}
+                      </td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: "#14532D" }}>{formatUGX(p.cash_paid)}</td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={9} className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No purchase records found</td>
+                    </tr>
+                  )}
+                </tbody>
+                {farmerPurchases.length > 0 && (
+                  <tfoot>
+                    <tr style={{ backgroundColor: "#f0fdf4" }}>
+                      <td colSpan={2} className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>TOTALS</td>
+                      <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>
+                        {farmerPurchases.reduce((s, p) => s + p.gross_weight, 0)} kg
+                      </td>
+                      <td />
+                      <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#DC2626" }}>
+                        −{farmerPurchases.reduce((s, p) => s + (p.deduction_weight ?? 0), 0).toFixed(2)} kg
+                      </td>
+                      <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>
+                        {totalWeight.toFixed(2)} kg
+                      </td>
+                      <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#111827" }}>
+                        {formatUGX(totalValue)}
+                      </td>
+                      <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#DC2626" }}>
+                        −{formatUGX(farmerPurchases.reduce((s, p) => s + p.advance_deducted, 0))}
+                      </td>
+                      <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>
+                        {formatUGX(farmerPurchases.reduce((s, p) => s + p.cash_paid, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
                 )}
-              </tbody>
-              {farmerPurchases.length > 0 && (
-                <tfoot>
-                  <tr style={{ backgroundColor: "#f0fdf4" }}>
-                    <td colSpan={2} className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>TOTALS</td>
-                    <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>
-                      {farmerPurchases.reduce((s, p) => s + p.gross_weight, 0)} kg
-                    </td>
-                    <td />
-                    <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#DC2626" }}>
-                      −{farmerPurchases.reduce((s, p) => s + (p.deduction_weight ?? 0), 0).toFixed(2)} kg
-                    </td>
-                    <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>
-                      {totalWeight.toFixed(2)} kg
-                    </td>
-                    <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#111827" }}>
-                      {formatUGX(Math.round(totalValue / 1000))}K
-                    </td>
-                    <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#DC2626" }}>
-                      −{formatUGX(Math.round(farmerPurchases.reduce((s, p) => s + p.advance_deducted, 0) / 1000))}K
-                    </td>
-                    <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>
-                      {formatUGX(Math.round(farmerPurchases.reduce((s, p) => s + p.cash_paid, 0) / 1000))}K
-                    </td>
-                  </tr>
-                </tfoot>
+              </table>
+            </div>
+
+            {/* Mobile View */}
+            <div className="lg:hidden flex flex-col divide-y divide-gray-50">
+              {farmerPurchases.length > 0 ? farmerPurchases.map((p) => (
+                <div key={p.id} className="p-4 flex flex-col gap-3 hover:bg-gray-50 transition-colors">
+                  <div className="flex justify-between items-start">
+                    <div className="flex flex-col">
+                      <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#111827" }}>{p.date}</div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-full" style={{
+                          fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 500,
+                          backgroundColor: p.coffee_type === "Kiboko" ? "#f0fdf4" : p.coffee_type === "Red" ? "#fef2f2" : "#fdf4ff",
+                          color: p.coffee_type === "Kiboko" ? "#14532D" : p.coffee_type === "Red" ? "#991b1b" : "#701a75"
+                        }}>{p.coffee_type}</span>
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: p.moisture_content > p.standard_moisture ? "#DC2626" : "#16A34A", fontWeight: 500 }}>{p.moisture_content}% Moisture</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: "#14532D" }}>{formatUGX(p.cash_paid)}</div>
+                      <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280" }}>Cash Paid</div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 mt-1 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
+                    <div>
+                      <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600 }}>Payable Wt</div>
+                      <div style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{p.payable_weight.toFixed(2)} kg</div>
+                      <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#6B7280", marginTop: "2px" }}>Gross: {p.gross_weight} kg</div>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600 }}>Total Value</div>
+                      <div style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{formatUGX(p.total_amount)}</div>
+                      {p.advance_deducted > 0 && (
+                        <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#DC2626", marginTop: "2px", fontWeight: 500 }}>Ded: −{formatUGX(p.advance_deducted)}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )) : (
+                <div className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No purchase records found</div>
               )}
-            </table>
-          </div>
+              {farmerPurchases.length > 0 && (
+                <div className="p-4 bg-green-50/50 space-y-2 border-t border-green-100 flex justify-between items-center mt-1">
+                   <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#14532D" }}>Total Cash Paid</div>
+                   <div style={{ fontFamily: "Inter, sans-serif", fontSize: "15px", fontWeight: 700, color: "#14532D" }}>
+                      {formatUGX(farmerPurchases.reduce((s, p) => s + p.cash_paid, 0))}
+                   </div>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         {/* Advance History Tab */}
         {activeTab === "advances" && (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr style={{ backgroundColor: "#F8FAFC" }}>
-                  {["Date Given", "Amount", "Amount Deducted", "Remaining Balance", "Status", "Notes"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {farmerAdvances.length > 0 ? farmerAdvances.map((a) => (
-                  <tr key={a.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}>{a.issue_date}</td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{formatUGX(a.amount)}</td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#16A34A", fontWeight: 500 }}>{formatUGX(a.deducted)}</td>
-                    <td className="px-4 py-3.5">
-                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: a.remaining > 0 ? "#DC2626" : "#16A34A" }}>
-                        {formatUGX(a.remaining)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5"><Badge status={a.status} /></td>
-                    <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>{a.notes || "—"}</td>
+          <>
+            {/* Desktop View */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr style={{ backgroundColor: "#F8FAFC" }}>
+                    {["Date Given", "Amount", "Expected Price", "Expected Return", "Deducted", "Balance", "Status", "Notes"].map(h => (
+                      <th key={h} className="px-4 py-3 text-left whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
+                    ))}
                   </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No advance records found</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {farmerAdvances.length > 0 ? farmerAdvances.map((a) => (
+                    <tr key={a.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}>{a.issue_date}</td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{formatUGX(a.amount)}</td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>
+                        {a.unit_price ? `UGX ${a.unit_price.toLocaleString()}/kg` : "—"}
+                      </td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: "#14532D" }}>
+                        {a.unit_price ? `${(a.amount / a.unit_price).toFixed(1)} kg` : "—"}
+                      </td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#16A34A", fontWeight: 500 }}>{formatUGX(a.deducted)}</td>
+                      <td className="px-4 py-3.5">
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: a.remaining > 0 ? "#DC2626" : "#16A34A" }}>
+                          {formatUGX(a.remaining)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5"><Badge status={a.status} /></td>
+                      <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }}>{a.notes || "—"}</td>
+                    </tr>
+                  )) : (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No advance records found</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile View */}
+            <div className="lg:hidden flex flex-col divide-y divide-gray-50">
+              {farmerAdvances.length > 0 ? farmerAdvances.map((a) => (
+                <div key={a.id} className="p-4 flex flex-col gap-3 hover:bg-gray-50 transition-colors">
+                  <div className="flex justify-between items-start">
+                    <div className="flex flex-col flex-1 pr-2">
+                       <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#111827" }}>{a.issue_date}</div>
+                       <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280" }} className="line-clamp-1 mt-0.5">{a.notes || "No notes"}</div>
+                    </div>
+                    <Badge status={a.status} />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 mt-1 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
+                    <div>
+                      <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600 }}>Given</div>
+                      <div style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#111827" }}>{formatUGX(a.amount)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: "Inter", fontSize: "10px", color: "#9CA3AF", textTransform: "uppercase", fontWeight: 600 }}>Deducted</div>
+                      <div style={{ fontFamily: "Inter", fontSize: "13px", fontWeight: 600, color: "#16A34A" }}>{formatUGX(a.deducted)}</div>
+                    </div>
+                    {a.unit_price && (
+                      <div className="col-span-2 pt-2 border-t border-gray-200/60 mt-1 flex justify-between items-center">
+                        <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#6B7280", fontWeight: 500 }}>Expected Return</div>
+                        <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 700, color: "#14532D" }}>
+                          {(a.amount / a.unit_price).toFixed(1)} kg @ {formatUGX(a.unit_price)}/kg
+                        </div>
+                      </div>
+                    )}
+                    <div className="col-span-2 pt-2 border-t border-gray-200/60 mt-1 flex justify-between items-center">
+                      <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#6B7280", fontWeight: 500 }}>Balance</div>
+                      <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: a.remaining > 0 ? "#DC2626" : "#16A34A" }}>
+                        {a.remaining > 0 ? formatUGX(a.remaining) : "Cleared"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )) : (
+                <div className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No advance records found</div>
+              )}
+            </div>
+          </>
         )}
 
         {/* Seasonal Summary Tab */}
@@ -308,9 +446,9 @@ export default function FarmerDetail() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               {[
                 { label: "Total KG Supplied", value: `${totalWeight.toFixed(0)} kg`, color: "#14532D", bg: "#f0fdf4" },
-                { label: "Total Amount Earned", value: `${formatUGX(Math.round(totalValue / 1000))}K`, color: "#16A34A", bg: "#f0fdf4" },
-                { label: "Total Advances", value: `${formatUGX(Math.round(totalAdvances / 1000))}K`, color: "#F59E0B", bg: "#fffbeb" },
-                { label: "Final Balance", value: activeAdvance ? `${formatUGX(Math.round(activeAdvance.remaining / 1000))}K owed` : "Settled", color: activeAdvance ? "#DC2626" : "#16A34A", bg: activeAdvance ? "#fef2f2" : "#f0fdf4" },
+                { label: "Total Amount Earned", value: formatUGX(totalValue), color: "#16A34A", bg: "#f0fdf4" },
+                { label: "Total Advances", value: formatUGX(totalAdvances), color: "#F59E0B", bg: "#fffbeb" },
+                { label: "Final Balance", value: activeAdvance ? `${formatUGX(activeAdvance.remaining)} owed` : "Settled", color: activeAdvance ? "#DC2626" : "#16A34A", bg: activeAdvance ? "#fef2f2" : "#f0fdf4" },
               ].map(s => (
                 <div key={s.label} className="p-4 rounded-xl" style={{ backgroundColor: s.bg, border: "1px solid transparent" }}>
                   <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280", marginBottom: "6px" }}>{s.label}</div>

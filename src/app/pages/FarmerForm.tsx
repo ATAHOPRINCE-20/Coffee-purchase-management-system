@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { Layout } from "../components/Layout";
 import { User, Phone, MapPin, Save, X, Loader2, Check, AlertCircle } from "lucide-react";
-import { farmersService, Farmer } from "../services/farmersService";
+import { farmersService } from "../services/farmersService";
+import { supabase } from "../lib/supabase";
 
 function SuccessToast({ visible }: { visible: boolean }) {
   if (!visible) return null;
@@ -10,7 +11,7 @@ function SuccessToast({ visible }: { visible: boolean }) {
     <div className="fixed bottom-6 right-6 flex items-center gap-3 px-5 py-4 rounded-xl shadow-xl z-50"
       style={{ backgroundColor: "#14532D", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 500 }}>
       <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center"><Check size={14} color="#fff" /></div>
-      Farmer registered successfully!
+      Client registered successfully!
     </div>
   );
 }
@@ -26,11 +27,31 @@ export default function FarmerForm() {
     phone: "",
     village: "",
     region: "Western Uganda", // Default region
+    eudr_number: "",
   });
+
+  const DRAFT_KEY = 'farmer_form_draft';
+
+  // Load draft on mount
+  useEffect(() => {
+    const draft = localStorage.getItem(DRAFT_KEY);
+    if (draft) {
+      try {
+        setFormData(JSON.parse(draft));
+      } catch (e) {
+        console.error("Failed to load farmer draft:", e);
+      }
+    }
+  }, []);
+
+  // Save draft on change
+  useEffect(() => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(formData));
+  }, [formData]);
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!formData.name.trim()) e.name = "Farmer name is required";
+    if (!formData.name.trim()) e.name = "Client name is required";
     if (!formData.phone.trim()) e.phone = "Phone number is required";
     if (!formData.village.trim()) e.village = "Village name is required";
     return e;
@@ -47,8 +68,12 @@ export default function FarmerForm() {
       setLoading(true);
       setErrors({});
       
-      await farmersService.create(formData as Farmer);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      await farmersService.create({ ...formData, admin_id: user.id });
       
+      localStorage.removeItem(DRAFT_KEY);
       setToast(true);
       setTimeout(() => {
         setToast(false);
@@ -56,7 +81,7 @@ export default function FarmerForm() {
       }, 2000);
     } catch (err: any) {
       console.error("Error saving farmer:", err);
-      setErrors({ submit: err.message || "Failed to register farmer" });
+      setErrors({ submit: err.message || "Failed to register client" });
     } finally {
       setLoading(false);
     }
@@ -68,13 +93,13 @@ export default function FarmerForm() {
     } focus:border-[#14532D] focus:ring-2 focus:ring-[#14532D]/10`;
 
   return (
-    <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Farmers", href: "/farmers" }, { label: "Register Farmer" }]}>
+    <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Clients", href: "/farmers" }, { label: "Register Client" }]}>
       <SuccessToast visible={toast} />
 
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>Register New Farmer</h1>
-          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>Onboard a new farmer to the coffee management system</p>
+          <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>Register New Client</h1>
+          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>Onboard a new client to the coffee management system</p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl shadow-sm" style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0" }}>
           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#16A34A" }} />
@@ -96,8 +121,8 @@ export default function FarmerForm() {
               <User size={20} color="#14532D" />
             </div>
             <div>
-              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "16px", fontWeight: 600, color: "#111827" }}>Farmer Profile Information</div>
-              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280" }}>Basic contact details for the farmer</div>
+              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "16px", fontWeight: 600, color: "#111827" }}>Client Profile Information</div>
+              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280" }}>Basic contact details for the client</div>
             </div>
           </div>
 
@@ -112,7 +137,7 @@ export default function FarmerForm() {
                   type="text"
                   value={formData.name}
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. John Doe"
+                  placeholder="e.g. Akello Grace"
                   className={inputClass("name")}
                   style={{ fontFamily: "Inter, sans-serif", fontSize: "14px" }}
                 />
@@ -164,6 +189,23 @@ export default function FarmerForm() {
               </div>
             </div>
 
+            {/* EUDR Number */}
+            <div>
+              <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "8px" }}>
+                EUDR Number (Optional)
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={formData.eudr_number}
+                  onChange={e => setFormData({ ...formData, eudr_number: e.target.value })}
+                  placeholder="Enter EUDR number if available"
+                  className={inputClass("eudr_number")}
+                  style={{ fontFamily: "Inter, sans-serif", fontSize: "14px" }}
+                />
+              </div>
+            </div>
+
             {/* Region */}
             <div>
               <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "8px" }}>Region</label>
@@ -198,7 +240,7 @@ export default function FarmerForm() {
             ) : (
               <>
                 <Save size={18} />
-                Save Farmer Profile
+                Save Client Profile
               </>
             )}
           </button>

@@ -10,37 +10,25 @@ export const farmers = [
 export const purchases = [
   {
     id: "PUR001", farmerId: "F001", farmerName: "John Mugisha", date: "2025-02-15",
-    coffeeType: "Robusta", grossWeight: 500, moistureContent: 16, standardMoisture: 12,
+    coffeeType: "Kiboko", grossWeight: 500, moistureContent: 16, standardMoisture: 12,
     deduction: 23.81, payableWeight: 476.19, buyingPrice: 5200,
     totalAmount: 2476188, advanceDeducted: 500000, cashPaid: 1976188,
   },
   {
-    id: "PUR002", farmerId: "F002", farmerName: "Mary Auma", date: "2025-02-14",
-    coffeeType: "Arabica", grossWeight: 320, moistureContent: 14, standardMoisture: 12,
-    deduction: 7.27, payableWeight: 312.73, buyingPrice: 6800,
-    totalAmount: 2126564, advanceDeducted: 300000, cashPaid: 1826564,
-  },
-  {
     id: "PUR003", farmerId: "F003", farmerName: "Peter Ssemakula", date: "2025-02-13",
-    coffeeType: "Robusta", grossWeight: 750, moistureContent: 18, standardMoisture: 12,
+    coffeeType: "Kiboko", grossWeight: 750, moistureContent: 18, standardMoisture: 12,
     deduction: 51.14, payableWeight: 698.86, buyingPrice: 5200,
     totalAmount: 3634072, advanceDeducted: 0, cashPaid: 3634072,
   },
   {
     id: "PUR004", farmerId: "F001", farmerName: "John Mugisha", date: "2025-02-10",
-    coffeeType: "Robusta", grossWeight: 400, moistureContent: 15, standardMoisture: 12,
+    coffeeType: "Kiboko", grossWeight: 400, moistureContent: 15, standardMoisture: 12,
     deduction: 13.64, payableWeight: 386.36, buyingPrice: 5200,
     totalAmount: 2009072, advanceDeducted: 200000, cashPaid: 1809072,
   },
   {
-    id: "PUR005", farmerId: "F004", farmerName: "Grace Nakato", date: "2025-02-08",
-    coffeeType: "Arabica", grossWeight: 280, moistureContent: 13, standardMoisture: 12,
-    deduction: 3.18, payableWeight: 276.82, buyingPrice: 6800,
-    totalAmount: 1882376, advanceDeducted: 150000, cashPaid: 1732376,
-  },
-  {
     id: "PUR006", farmerId: "F005", farmerName: "David Ochieng", date: "2025-02-05",
-    coffeeType: "Robusta", grossWeight: 620, moistureContent: 17, standardMoisture: 12,
+    coffeeType: "Kiboko", grossWeight: 620, moistureContent: 17, standardMoisture: 12,
     deduction: 39.09, payableWeight: 580.91, buyingPrice: 5200,
     totalAmount: 3020732, advanceDeducted: 400000, cashPaid: 2620732,
   },
@@ -80,8 +68,9 @@ export const advances = [
 ];
 
 export const buyingPrices = {
-  Robusta: 5200,
-  Arabica: 6800,
+  Kiboko: 5200,
+  Red: 3500,
+  Kase: 7000,
 };
 
 export const dashboardStats = {
@@ -104,8 +93,9 @@ export const monthlyTrend = [
 ];
 
 export const coffeeTypeBreakdown = [
-  { type: "Robusta", percentage: 65, weight: 11973 },
-  { type: "Arabica", percentage: 35, weight: 6447 },
+  { type: "Kiboko", percentage: 50, weight: 11973 },
+  { type: "Red", percentage: 25, weight: 6447 },
+  { type: "Kase", percentage: 25, weight: 6447 },
 ];
 
 export const farmerSeasonalSummary = [
@@ -117,12 +107,12 @@ export const farmerSeasonalSummary = [
 ];
 
 export const dailyPrices = [
-  { id: "DP001", date: "2025-02-22", Robusta: 5200, Arabica: 6800, setBy: "James Kato", setAt: "8:30 AM", notes: "Standard market rate" },
-  { id: "DP002", date: "2025-02-21", Robusta: 5100, Arabica: 6750, setBy: "James Kato", setAt: "8:15 AM", notes: "" },
-  { id: "DP003", date: "2025-02-20", Robusta: 5100, Arabica: 6700, setBy: "James Kato", setAt: "9:00 AM", notes: "Slight dip in Arabica" },
-  { id: "DP004", date: "2025-02-19", Robusta: 5200, Arabica: 6800, setBy: "James Kato", setAt: "8:45 AM", notes: "" },
-  { id: "DP005", date: "2025-02-18", Robusta: 5150, Arabica: 6750, setBy: "James Kato", setAt: "8:00 AM", notes: "" },
-  { id: "DP006", date: "2025-02-17", Robusta: 5000, Arabica: 6600, setBy: "James Kato", setAt: "8:30 AM", notes: "Weekend rates" },
-  { id: "DP007", date: "2025-02-16", Robusta: 5000, Arabica: 6600, setBy: "James Kato", setAt: "8:30 AM", notes: "Weekend rates" },
-  { id: "DP008", date: "2025-02-15", Robusta: 5200, Arabica: 6800, setBy: "James Kato", setAt: "8:20 AM", notes: "" },
+  { id: "DP001", date: "2025-02-22", Kiboko: 5200, Red: 3500, Kase: 7000, setBy: "James Kato", setAt: "8:30 AM", notes: "Standard market rate" },
+  { id: "DP002", date: "2025-02-21", Kiboko: 5100, Red: 3500, Kase: 7000, setBy: "James Kato", setAt: "8:15 AM", notes: "" },
+  { id: "DP003", date: "2025-02-20", Kiboko: 5100, Red: 3500, Kase: 7000, setBy: "James Kato", setAt: "9:00 AM", notes: "" },
+  { id: "DP004", date: "2025-02-19", Kiboko: 5200, Red: 3400, Kase: 6900, setBy: "James Kato", setAt: "8:45 AM", notes: "" },
+  { id: "DP005", date: "2025-02-18", Kiboko: 5150, Red: 3400, Kase: 6900, setBy: "James Kato", setAt: "8:00 AM", notes: "" },
+  { id: "DP006", date: "2025-02-17", Kiboko: 5000, Red: 3300, Kase: 6800, setBy: "James Kato", setAt: "8:30 AM", notes: "Weekend rates" },
+  { id: "DP007", date: "2025-02-16", Kiboko: 5000, Red: 3300, Kase: 6800, setBy: "James Kato", setAt: "8:30 AM", notes: "Weekend rates" },
+  { id: "DP008", date: "2025-02-15", Kiboko: 5200, Red: 3500, Kase: 7000, setBy: "James Kato", setAt: "8:20 AM", notes: "" },
 ];

@@ -8,9 +8,12 @@ import {
   BarChart3, TrendingUp, Download, Calendar, Filter, 
   ArrowUpRight, ArrowDownRight, Coffee, Loader2 
 } from "lucide-react";
-import { purchasesService } from "../services/purchasesService";
-import { advancesService } from "../services/advancesService";
+import { purchasesService, Purchase } from "../services/purchasesService";
+import { advancesService, Advance } from "../services/advancesService";
 import { seasonsService, Season } from "../services/seasonsService";
+import { agentAdvancesService, AgentAdvance } from "../services/agentAdvancesService";
+import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
+import { salesService, Sale } from "../services/salesService";
 
 const formatUGX = (v: number) => `UGX ${Math.round(v).toLocaleString()}`;
 
@@ -44,29 +47,51 @@ export default function Reports() {
     totalWeight: 0,
     totalValue: 0,
     totalAdvances: 0,
-    avgMoisture: 0
+    batchWeight: 0,
+    ownPurchasesCost: 0,
+    agentCapitalCost: 0
   });
+
+  const { profile } = useAuth();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [activeSeason, allPurchases, allAdvances] = await Promise.all([
-          seasonsService.getActive(),
-          purchasesService.getAll(),
-          advancesService.getAll()
+        const adminId = getEffectiveAdminId(profile);
+        if (!adminId || !profile) return;
+
+        const [activeSeason, allPurchases, allAdvances, allSales, allAgentAdvances] = await Promise.all([
+          seasonsService.getActive(adminId),
+          purchasesService.getAll(adminId),
+          advancesService.getAll(adminId),
+          salesService.getAll(adminId),
+          agentAdvancesService.getAllForAdmin(adminId)
         ]);
 
         setSeason(activeSeason);
 
-        const totalWeight = allPurchases.reduce((s, p) => s + (p.payable_weight || 0), 0);
-        const totalValue = allPurchases.reduce((s, p) => s + (p.total_amount || 0), 0);
-        const totalAdvances = allAdvances.reduce((s, a) => s + (a.amount || 0), 0);
-        const avgMoisture = allPurchases.length > 0 
-          ? allPurchases.reduce((s, p) => s + (p.moisture_content || 0), 0) / allPurchases.length 
-          : 0;
+        const totalWeight = allPurchases.reduce((s: number, p: Purchase) => s + (p.payable_weight || 0), 0);
+        const totalValue = allPurchases.reduce((s: number, p: Purchase) => s + (p.total_amount || 0), 0);
+        const totalAdvances = allAdvances.reduce((s: number, a: Advance) => s + (a.amount || 0), 0);
+        
+        // Breakdown calculations
+        const ownPurchasesCost = allPurchases
+          .filter((p: Purchase) => p.field_agent_id === profile.id)
+          .reduce((s: number, p: Purchase) => s + (p.total_amount || 0), 0);
+        
+        const agentCapitalCost = allAgentAdvances.reduce((s: number, a: AgentAdvance) => s + (a.amount || 0), 0);
 
-        setStats({ totalWeight, totalValue, totalAdvances, avgMoisture });
+        // Batch calculation
+        const latestSale = allSales.sort((a: Sale, b: Sale) => 
+          new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime()
+        )[0];
+        const lastSaleTime = latestSale?.created_at || '1970-01-01T00:00:00Z';
+        const batchWeight = allPurchases
+          .filter((p: Purchase) => new Date(p.created_at || p.date).getTime() > new Date(lastSaleTime).getTime())
+          .reduce((s: number, p: Purchase) => s + (p.payable_weight || 0), 0);
+
+        setStats({ totalWeight, totalValue, totalAdvances, batchWeight, ownPurchasesCost, agentCapitalCost });
 
         // Trend calculation
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -93,7 +118,7 @@ export default function Reports() {
           return { 
             month: months[parseInt(m) - 1], 
             weight: data.weight,
-            value: data.value / 1000 // In thousands
+            value: data.value
           };
         });
 
@@ -146,11 +171,16 @@ export default function Reports() {
       </div>
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-        <ReportStat label="Total Volume" value={`${stats.totalWeight.toLocaleString()} kg`} sub="vs last season" icon={Coffee} color="#6F4E37" />
-        <ReportStat label="Total Payout" value={`${formatUGX(Math.round(stats.totalValue / 1000))}K`} sub="total seasonal value" icon={TrendingUp} color="#16A34A" />
-        <ReportStat label="Total Advances" value={`${formatUGX(Math.round(stats.totalAdvances / 1000))}K`} sub="issued this season" icon={BarChart3} color="#F59E0B" />
-        <ReportStat label="Avg Moisture" value={`${stats.avgMoisture.toFixed(1)}%`} sub="standard is 12.0%" icon={Filter} color="#14532D" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-5">
+        <ReportStat label="Seasonal Volume" value={`${stats.totalWeight.toLocaleString()} kg`} sub={`${season?.name || "Active Session"}`} icon={Coffee} color="#6F4E37" />
+        <ReportStat label="Batch Volume" value={`${stats.batchWeight.toLocaleString()} kg`} sub="coffee since last sale" icon={Filter} color="#14532D" />
+        <ReportStat label="Total Volume Cost" value={formatUGX(stats.totalValue)} sub="Total spent on coffee" icon={TrendingUp} color="#16A34A" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+        <ReportStat label="Direct Own Purchases" value={formatUGX(stats.ownPurchasesCost)} sub="Money used personally" icon={TrendingUp} color="#14532D" />
+        <ReportStat label="Agent Capital Issued" value={formatUGX(stats.agentCapitalCost)} sub="Money given to agents" icon={TrendingUp} color="#16A34A" />
+        <ReportStat label="Farmer Advances" value={formatUGX(stats.totalAdvances)} sub="issued this season" icon={BarChart3} color="#F59E0B" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
@@ -210,8 +240,8 @@ export default function Reports() {
 
         {/* Payout Value Chart */}
         <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm text-center">
-            <h3 className="text-lg font-bold text-gray-900 mb- aggregation-1">Payout Distribution</h3>
-            <p className="text-xs text-gray-500 mb-8">Monthly payout value (thousands UGX)</p>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Payout Distribution</h3>
+            <p className="text-xs text-gray-500 mb-8">Monthly payout value (UGX)</p>
             <ResponsiveContainer width="100%" height={250}>
             <BarChart data={monthlyTrend} margin={{ left: -20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />

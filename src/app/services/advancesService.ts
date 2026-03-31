@@ -10,15 +10,19 @@ export interface Advance {
   status: 'Active' | 'Cleared';
   issue_date: string;
   notes: string;
+  unit_price?: number;
   admin_id?: string;
 }
 
 export const advancesService = {
-  async getAll() {
-    const { data, error } = await supabase
+  async getAll(adminId: string) {
+    let query = supabase
       .from('advances')
-      .select('*, farmers(name)');
+      .select('*, farmers(name), seasons(name), admin:admin_id(full_name)');
+      
+    // RLS handles visibility
     
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   },
@@ -45,7 +49,7 @@ export const advancesService = {
     return data as Advance;
   },
 
-  async update(id: string, updates: Omit<Partial<Advance>, 'remaining' | 'status'>) {
+  async update(id: string, updates: Omit<Partial<Advance>, 'remaining'>) {
     const { data, error } = await supabase
       .from('advances')
       .update(updates)
@@ -55,5 +59,22 @@ export const advancesService = {
     
     if (error) throw error;
     return data as Advance;
+  },
+
+  async getDashboardStats(adminId: string, options: { onlyDirect?: boolean } = {}) {
+    let query = supabase
+      .from('advances')
+      .select('*, farmers(name), seasons(name)');
+
+    if (options.onlyDirect) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        query = query.eq('creator_id', user.id);
+      }
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data;
   }
 };

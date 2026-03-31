@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { supabase } from '../lib/supabase';
 import { Coffee, Lock, User, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 
@@ -11,25 +11,71 @@ import { Coffee, Lock, User, AlertCircle, CheckCircle2, ArrowRight } from 'lucid
  */
 export default function AcceptInvite() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [role, setRole] = useState('Field Agent');
   const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
-    // When an invite link is clicked, Supabase sets a temporary session.
-    // We listen for it here to confirm the invite token was valid.
-    supabase.auth.onAuthStateChange(async (event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
-        // Pre-fill name from metadata if available
+    const exchangeToken = async () => {
+      // Supabase invite links arrive as:
+      //   /accept-invite?token_hash=xxx&type=invite
+      // We must call verifyOtp to exchange the token and establish a session.
+      // Search params derived properly from React Router
+      let tokenHash = searchParams.get('token_hash');
+      let type = searchParams.get('type') as 'invite' | 'recovery' | null;
+      
+      // Fallback: Supabase sometimes appends auth params to the hash instead of the search string.
+      if (!tokenHash && window.location.hash) {
+        const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
+        tokenHash = hashParams.get('token_hash');
+        type = hashParams.get('type') as 'invite' | 'recovery' | null;
+      }
+
+      if (tokenHash && type === 'invite') {
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: 'invite',
+        });
+
+        if (error) {
+          setError('This invite link is invalid or has expired. Please ask to be re-invited.');
+          setSessionReady(true); // show error instead of spinner
+          return;
+        }
+
+        const user = data?.user;
+        if (user) {
+          const metaName = user.user_metadata?.full_name;
+          if (metaName) setFullName(metaName);
+          const metaRole = user.user_metadata?.role;
+          if (metaRole) setRole(metaRole);
+        }
+        setSessionReady(true);
+        return;
+      }
+
+      // Fallback: check if there's already an active session (e.g. page refresh)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
         const metaName = session.user.user_metadata?.full_name;
         if (metaName) setFullName(metaName);
+        const metaRole = session.user.user_metadata?.role;
+        if (metaRole) setRole(metaRole);
+        setSessionReady(true);
+      } else {
+        // No token, no session — show a helpful error
+        setError('No valid invite token found. Please use the link from your invitation email.');
         setSessionReady(true);
       }
-    });
+    };
+
+    exchangeToken();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -56,9 +102,12 @@ export default function AcceptInvite() {
       if (updateError) throw updateError;
       if (!user) throw new Error('No user session found.');
 
-      // 2. Upsert the profile row with the admin_id from invite metadata
-      const adminId = user.user_metadata?.admin_id ?? user.id;
-      const role = user.user_metadata?.role ?? 'Field Agent';
+      // 2. Upsert the profile row with the admin_id and parent_id from invite metadata
+      // In the new model, admin_id is the root admin (top of branch). 
+      // parent_id is the direct inviter.
+      const adminId = user.user_metadata?.admin_id || user.id;
+      const parentId = user.user_metadata?.parent_id || null;
+      const role = user.user_metadata?.role || 'Field Agent';
 
       const { error: profileError } = await supabase
         .from('profiles')
@@ -67,6 +116,7 @@ export default function AcceptInvite() {
           full_name: fullName,
           role,
           admin_id: adminId,
+          parent_id: parentId,
           status: 'Active',
         });
 
@@ -123,7 +173,7 @@ export default function AcceptInvite() {
             Set Up Your Account
           </h1>
           <p style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px', color: '#6B7280', marginTop: '4px' }}>
-            You've been invited as a Field Agent. Create your password to get started.
+            You've been invited as a <span className="font-bold text-[#14532D]">{role}</span>. Create your password to get started.
           </p>
         </div>
 
@@ -147,7 +197,7 @@ export default function AcceptInvite() {
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="John Doe"
+                  placeholder="Akello Grace"
                   className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
                   style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
                 />

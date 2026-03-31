@@ -40,12 +40,8 @@ ALTER TABLE farmers ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "farmers_tenant" ON farmers;
 CREATE POLICY "farmers_tenant" ON farmers
-  USING (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  )
-  WITH CHECK (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  );
+  USING (admin_id = get_my_admin_id())
+  WITH CHECK (admin_id = get_my_admin_id());
 
 -- ─────────────────────────────────────────
 -- STEP 3: PURCHASES TABLE
@@ -56,12 +52,8 @@ ALTER TABLE purchases ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "purchases_tenant" ON purchases;
 CREATE POLICY "purchases_tenant" ON purchases
-  USING (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  )
-  WITH CHECK (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  );
+  USING (admin_id = get_my_admin_id())
+  WITH CHECK (admin_id = get_my_admin_id());
 
 -- ─────────────────────────────────────────
 -- STEP 4: ADVANCES TABLE
@@ -72,12 +64,8 @@ ALTER TABLE advances ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "advances_tenant" ON advances;
 CREATE POLICY "advances_tenant" ON advances
-  USING (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  )
-  WITH CHECK (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  );
+  USING (admin_id = get_my_admin_id())
+  WITH CHECK (admin_id = get_my_admin_id());
 
 -- ─────────────────────────────────────────
 -- STEP 5: BUYING_PRICES TABLE
@@ -88,12 +76,8 @@ ALTER TABLE buying_prices ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "prices_tenant" ON buying_prices;
 CREATE POLICY "prices_tenant" ON buying_prices
-  USING (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  )
-  WITH CHECK (
-    admin_id = (SELECT admin_id FROM profiles WHERE id = auth.uid())
-  );
+  USING (admin_id = get_my_admin_id())
+  WITH CHECK (admin_id = get_my_admin_id());
 
 -- ─────────────────────────────────────────
 -- STEP 6: HELPER FUNCTION

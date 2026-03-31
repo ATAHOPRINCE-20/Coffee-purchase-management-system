@@ -8,7 +8,7 @@ import { useAuth } from '../hooks/useAuth';
 export default function Login() {
   const { user } = useAuth();
   const location = useLocation();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setStatus] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,15 +30,41 @@ export default function Login() {
     setError(null);
 
     try {
-      console.log('[Login] Form submitted:', email);
+      console.log('[Login] Form submitted:', identifier);
       
+      let emailToUse = identifier;
+
+      // 1. Resolve identifier (email or username) using a secure RPC
+      // This bypasses RLS since we aren't logged in yet.
+      const { data: resolveData, error: resolveError } = await supabase.rpc('resolve_identifier_v1', {
+        p_identifier: identifier
+      });
+
+      if (resolveError) {
+        console.error('[Login] Identifier resolution error:', resolveError);
+        setError('A system error occurred. Please try again.');
+        setStatus(false);
+        return;
+      }
+
+      const res = resolveData as { success: boolean, email?: string, error?: string };
+
+      if (!res.success) {
+        setError('Login identifier not found. Please use your email or check your username.');
+        setStatus(false);
+        return;
+      }
+
+      emailToUse = res.email!;
+      console.log('[Login] Resolved identifier to:', emailToUse);
+
       const timeoutId = setTimeout(() => {
         console.warn('[Login] Sign in is taking a long time (10s+)...');
         setError('Connection is slow. Please wait or check your internet.');
       }, 10000);
 
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: emailToUse,
         password,
       });
 
@@ -46,7 +72,13 @@ export default function Login() {
 
       if (error) {
         console.error('[Login] Supabase sign in error:', error);
-        setError(error.message);
+        if (error.status === 429) {
+          setError('Too many login attempts. Please try again in a few minutes.');
+        } else if (error.message.includes('Invalid login credentials')) {
+          setError('Invalid login or password. Please try again.');
+        } else {
+          setError(error.message);
+        }
         setStatus(false);
       } else {
         console.log('[Login] Sign in success, User ID:', data.user?.id);
@@ -65,8 +97,8 @@ export default function Login() {
       <div className="w-full max-w-[400px]">
         {/* Logo & Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#14532D] text-white mb-4 shadow-lg shadow-green-900/20">
-            <Coffee size={32} />
+          <div className="inline-flex items-center justify-center w-20 h-20 mb-4">
+            <img src="/icon.png" alt="CoffeeTrack Logo" className="w-full h-full object-contain drop-shadow-xl" />
           </div>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: '24px', fontWeight: 800, color: '#111827' }}>
             CoffeeTrack
@@ -99,16 +131,16 @@ export default function Login() {
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label className="block mb-1.5" style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', fontWeight: 600, color: '#374151' }}>
-                Email Address
+                Email or Username
               </label>
               <div className="relative">
                 <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
-                  type="email"
+                  type="text"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="email or username"
                   className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
                   style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
                 />
@@ -130,6 +162,14 @@ export default function Login() {
                   className="w-full pl-11 pr-4 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
                   style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
                 />
+              </div>
+              <div className="flex justify-end mt-1.5">
+                <Link
+                  to="/forgot-password"
+                  className="text-[12px] font-semibold text-[#14532D] hover:underline"
+                >
+                  Forgot password?
+                </Link>
               </div>
             </div>
 
