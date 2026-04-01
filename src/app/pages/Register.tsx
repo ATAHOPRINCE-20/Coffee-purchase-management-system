@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { supabase } from '../lib/supabase';
-import { Coffee, Lock, Mail, User, AlertCircle, ArrowRight } from 'lucide-react';
+import { Coffee, Lock, Mail, User, AlertCircle, ArrowRight, Phone } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
 export default function Register() {
   const { user } = useAuth();
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'Admin' | 'Manager' | 'Field Agent'>('Field Agent');
@@ -36,6 +37,7 @@ export default function Register() {
           data: {
             full_name: fullName,
             username: username.toLowerCase().trim() || null,
+            phone: phone,
             role: role,
           },
         },
@@ -121,6 +123,24 @@ export default function Register() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="grace_akello (optional)"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
+                  style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-1.5" style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', fontWeight: 600, color: '#374151' }}>
+                Phone Number
+              </label>
+              <div className="relative">
+                <Phone size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+256 700 000 000"
                   className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
                   style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
                 />

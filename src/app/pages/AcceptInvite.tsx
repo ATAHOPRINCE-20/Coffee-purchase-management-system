@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { supabase } from '../lib/supabase';
-import { Coffee, Lock, User, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Coffee, Lock, User, AlertCircle, CheckCircle2, ArrowRight, Phone } from 'lucide-react';
 
 /**
  * AcceptInvite — handles the email invite link from Supabase.
@@ -13,6 +13,7 @@ export default function AcceptInvite() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -53,6 +54,8 @@ export default function AcceptInvite() {
         if (user) {
           const metaName = user.user_metadata?.full_name;
           if (metaName) setFullName(metaName);
+          const metaPhone = user.user_metadata?.phone;
+          if (metaPhone) setPhone(metaPhone);
           const metaRole = user.user_metadata?.role;
           if (metaRole) setRole(metaRole);
         }
@@ -65,6 +68,8 @@ export default function AcceptInvite() {
       if (session?.user) {
         const metaName = session.user.user_metadata?.full_name;
         if (metaName) setFullName(metaName);
+        const metaPhone = session.user.user_metadata?.phone;
+        if (metaPhone) setPhone(metaPhone);
         const metaRole = session.user.user_metadata?.role;
         if (metaRole) setRole(metaRole);
         setSessionReady(true);
@@ -96,7 +101,10 @@ export default function AcceptInvite() {
       // 1. Update password and full_name on the auth user
       const { data: { user }, error: updateError } = await supabase.auth.updateUser({
         password,
-        data: { full_name: fullName },
+        data: { 
+          full_name: fullName,
+          phone: phone
+        },
       });
 
       if (updateError) throw updateError;
@@ -114,6 +122,7 @@ export default function AcceptInvite() {
         .upsert({
           id: user.id,
           full_name: fullName,
+          phone,
           role,
           admin_id: adminId,
           parent_id: parentId,
@@ -198,6 +207,24 @@ export default function AcceptInvite() {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Akello Grace"
+                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
+                  style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-1.5" style={{ fontFamily: 'Inter, sans-serif', fontSize: '13px', fontWeight: 600, color: '#374151' }}>
+                Phone Number
+              </label>
+              <div className="relative">
+                <Phone size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+256 700 000 000"
                   className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] focus:ring-4 focus:ring-green-50 transition-all"
                   style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px' }}
                 />

@@ -203,13 +203,17 @@ export default function PurchaseEntry() {
   const gross = parseFloat(grossWeight) || 0;
   const moist = coffeeType === "Kase" ? (parseFloat(moisture) || 0) : 0;
   const std = coffeeType === "Kase" ? (parseFloat(standardMoisture) || 14) : 0;
-  const price = buyingPrices[coffeeType];
 
   const exactDeduction = coffeeType === "Kase" ? calcDeduction(gross, moist, std) : 0;
   const autoDeduction = Math.ceil(exactDeduction);
   const deduction = manualDeduction !== "" ? (parseFloat(manualDeduction) || 0) : autoDeduction;
   const payable = gross - deduction;
   const moistureLoss = gross > 0 ? (deduction / gross) * 100 : 0;
+  
+  // If farmer has an active advance with a fixed unit price, use it
+  const isAdvancePrice = !!(farmerAdvance?.unit_price && farmerAdvance.unit_price > 0);
+  const price = isAdvancePrice ? farmerAdvance!.unit_price! : buyingPrices[coffeeType];
+
   const totalAmount = payable * price;
 
   useEffect(() => {
@@ -762,11 +766,20 @@ export default function PurchaseEntry() {
 
               {/* Active Price Display */}
               <div>
-                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>Active Buying Price</label>
+                <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
+                  Active Buying Price
+                  {isAdvancePrice && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 font-bold uppercase tracking-wider">
+                      Advance Fixed Price
+                    </span>
+                  )}
+                </label>
                 <div className="px-3.5 py-2.5 rounded-xl border border-gray-200 flex items-center justify-between"
-                  style={{ backgroundColor: "#f0fdf4" }}>
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: "#14532D" }}>UGX {price.toLocaleString()}</span>
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#16A34A" }}>per kg · {coffeeType}</span>
+                  style={{ backgroundColor: isAdvancePrice ? "#fff7ed" : "#f0fdf4" }}>
+                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: isAdvancePrice ? "#9a3412" : "#14532D" }}>UGX {price.toLocaleString()}</span>
+                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: isAdvancePrice ? "#F59E0B" : "#16A34A" }}>
+                    per kg · {isAdvancePrice ? "Fixed from Advance" : coffeeType}
+                  </span>
                 </div>
               </div>
             </div>
@@ -911,7 +924,12 @@ export default function PurchaseEntry() {
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-green-200">
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Buying Price</span>
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 500, color: "#111827" }}>UGX {price.toLocaleString()}/kg</span>
+                    <div className="text-right">
+                      <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 500, color: "#111827" }}>UGX {price.toLocaleString()}/kg</span>
+                      {isAdvancePrice && (
+                        <div style={{ fontFamily: "Inter, sans-serif", fontSize: "10px", color: "#F59E0B", fontWeight: 600 }}>Advance Fixed</div>
+                      )}
+                    </div>
                   </div>
                   <div className="flex justify-between items-center py-3 border-b border-green-200">
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>Total Amount</span>
