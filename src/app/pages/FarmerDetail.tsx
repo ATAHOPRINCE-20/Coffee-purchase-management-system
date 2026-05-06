@@ -8,7 +8,8 @@ import { farmersService, Farmer } from "../services/farmersService";
 import { purchasesService, Purchase } from "../services/purchasesService";
 import { advancesService, Advance } from "../services/advancesService";
 import { ErrorState } from "../components/ErrorState";
-import { ArrowLeft, Phone, MapPin, Package, TrendingUp, CreditCard, ShoppingCart, Loader2, Trash2 } from "lucide-react";
+import { farmerPaymentsService, FarmerDebtSummary, FarmerPayment } from "../services/farmerPaymentsService";
+import { ArrowLeft, Phone, MapPin, Package, TrendingUp, CreditCard, ShoppingCart, Loader2, Trash2, History } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 
 function formatUGX(v: number) { return `UGX ${Math.round(v).toLocaleString()}`; }
@@ -34,6 +35,8 @@ export default function FarmerDetail() {
   const [farmer, setFarmer] = useState<Farmer | null>(null);
   const [farmerPurchases, setFarmerPurchases] = useState<Purchase[]>([]);
   const [farmerAdvances, setFarmerAdvances] = useState<Advance[]>([]);
+  const [debtSummary, setDebtSummary] = useState<FarmerDebtSummary | null>(null);
+  const [debtPayments, setDebtPayments] = useState<FarmerPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -57,14 +60,22 @@ export default function FarmerDetail() {
     try {
       setLoading(true);
       setError(null);
-      const [farmerData, purchasesData, advancesData] = await Promise.all([
+      const [farmerData, purchasesData, advancesData, summaries] = await Promise.all([
         farmersService.getById(id),
         purchasesService.getByFarmerId(id),
         advancesService.getByFarmerId(id),
+        farmerPaymentsService.getDebtsSummary(profile?.role === 'Super Admin' ? 'SUPER_ADMIN' : (profile?.admin_id || profile?.id || ''))
       ]);
+      const summary = summaries.find(s => String(s.farmer_id) === String(id));
       setFarmer(farmerData);
       setFarmerPurchases(purchasesData);
       setFarmerAdvances(advancesData);
+      setDebtSummary(summary || null);
+
+      if (id) {
+        const payments = await farmerPaymentsService.getPaymentsByFarmer(id);
+        setDebtPayments(payments);
+      }
     } catch (err: any) {
       setError(err.message || "Failed to load farmer data");
     } finally {
@@ -115,6 +126,7 @@ export default function FarmerDetail() {
   const tabs = [
     { id: "purchases", label: "Purchase History", icon: ShoppingCart },
     { id: "advances", label: "Advance History", icon: CreditCard },
+    { id: "debts", label: "Debt History", icon: History },
     { id: "summary", label: "Seasonal Summary", icon: TrendingUp },
   ];
 
@@ -191,6 +203,7 @@ export default function FarmerDetail() {
               { icon: Package, label: "Deliveries", value: `${farmerPurchases.length}`, color: "#14532D", bg: "#f0fdf4" },
               { icon: TrendingUp, label: "Total Supplied", value: `${totalWeight.toFixed(0)} kg`, color: "#6F4E37", bg: "#fdf6f3" },
               { icon: TrendingUp, label: "Total Value", value: formatUGX(totalValue), color: "#16A34A", bg: "#f0fdf4" },
+              { icon: CreditCard, label: "Debt Balance", value: (debtSummary?.remaining_debt || 0) > 0 ? formatUGX(debtSummary!.remaining_debt) : "Settled", color: (debtSummary?.remaining_debt || 0) > 0 ? "#DC2626" : "#16A34A", bg: (debtSummary?.remaining_debt || 0) > 0 ? "#fef2f2" : "#f0fdf4" },
               { icon: CreditCard, label: "Advance Balance", value: activeAdvance ? formatUGX(activeAdvance.remaining) : "Cleared", color: activeAdvance ? "#DC2626" : "#16A34A", bg: activeAdvance ? "#fef2f2" : "#f0fdf4" },
             ].map(s => (
               <div key={s.label} className="p-3.5 rounded-xl" style={{ backgroundColor: s.bg, border: "1px solid transparent" }}>
@@ -237,7 +250,7 @@ export default function FarmerDetail() {
               <table className="w-full">
                 <thead>
                   <tr style={{ backgroundColor: "#F8FAFC" }}>
-                    {["Date", "Type", "Gross Wt", "Moisture", "Deduction", "Payable Wt", "Total Amount", "Advance Ded.", "Cash Paid"].map(h => (
+                    {["Serial Number", "Date", "Type", "Gross Wt", "Moisture", "Deduction", "Payable Wt", "Total Amount", "Adv Ded.", "Cash Paid", "Status"].map(h => (
                       <th key={h} className="px-4 py-3 text-left whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
                     ))}
                   </tr>
@@ -245,6 +258,19 @@ export default function FarmerDetail() {
                 <tbody>
                   {farmerPurchases.length > 0 ? farmerPurchases.map((p) => (
                     <tr key={p.id} className="border-t border-gray-50 hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3.5">
+                        <span style={{ 
+                          fontFamily: "Inter, sans-serif", 
+                          fontSize: "11px", 
+                          fontWeight: 600, 
+                          color: "#14532D", 
+                          backgroundColor: "#f0fdf4", 
+                          padding: "2px 6px", 
+                          borderRadius: "4px" 
+                        }}>
+                          {p.serial_number ? String(p.serial_number).padStart(4, '0') : p.id.slice(0, 8).toUpperCase()}
+                        </span>
+                      </td>
                       <td className="px-4 py-3.5">
                         <span style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151" }}>{p.date}</span>
                       </td>
@@ -266,17 +292,43 @@ export default function FarmerDetail() {
                         {p.advance_deducted > 0 ? `−${formatUGX(p.advance_deducted)}` : "—"}
                       </td>
                       <td className="px-4 py-3.5" style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: "#14532D" }}>{formatUGX(p.cash_paid)}</td>
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {(() => {
+                          const debtAtPurchase = (p.total_amount || 0) - (p.advance_deducted || 0) - (p.cash_paid || 0);
+                          if (debtAtPurchase <= 0) return <span className="text-[9px] font-black text-green-700 bg-green-50 px-2 py-0.5 rounded-full uppercase">PAID</span>;
+                          
+                          // Calculate if this specific purchase was settled by total payments
+                          let availablePayment = debtSummary?.total_subsequent_payments || 0;
+                          const sortedAll = [...farmerPurchases].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                          let settledAmountForThis = 0;
+                          for (const sp of sortedAll) {
+                            const spDebt = (sp.total_amount || 0) - (sp.advance_deducted || 0) - (sp.cash_paid || 0);
+                            if (spDebt <= 0) continue;
+                            const paymentForSp = Math.min(availablePayment, spDebt);
+                            if (sp.id === p.id) {
+                              settledAmountForThis = paymentForSp;
+                              break;
+                            }
+                            availablePayment -= paymentForSp;
+                          }
+                          
+                          const remaining = Math.max(0, debtAtPurchase - settledAmountForThis);
+                          return remaining <= 0 ? 
+                            <span className="text-[9px] font-black text-green-700 bg-green-50 px-2 py-0.5 rounded-full uppercase">SETTLED</span> :
+                            <span className="text-[9px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-full uppercase">OWED: {formatUGX(remaining)}</span>;
+                        })()}
+                      </td>
                     </tr>
                   )) : (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No purchase records found</td>
+                      <td colSpan={10} className="py-12 text-center" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>No purchase records found</td>
                     </tr>
                   )}
                 </tbody>
                 {farmerPurchases.length > 0 && (
                   <tfoot>
                     <tr style={{ backgroundColor: "#f0fdf4" }}>
-                      <td colSpan={2} className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>TOTALS</td>
+                      <td colSpan={3} className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>TOTALS</td>
                       <td className="px-4 py-3" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#14532D" }}>
                         {farmerPurchases.reduce((s, p) => s + p.gross_weight, 0)} kg
                       </td>
@@ -438,6 +490,54 @@ export default function FarmerDetail() {
               )}
             </div>
           </>
+        )}
+
+        {/* Debt History Tab */}
+        {activeTab === "debts" && (
+          <div className="p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Subsequent Payments</h3>
+                <p className="text-xs text-gray-500">Payments recorded to clear outstanding credit balances</p>
+              </div>
+              <div className="px-4 py-2 bg-green-50 rounded-xl border border-green-100">
+                <div className="text-[10px] font-bold text-green-600 uppercase tracking-widest">Total Subsequent Paid</div>
+                <div className="text-lg font-black text-green-800">{formatUGX(debtSummary?.total_subsequent_payments || 0)}</div>
+              </div>
+            </div>
+
+            {debtPayments.length > 0 ? (
+              <div className="space-y-4">
+                {debtPayments.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors border border-gray-100">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex flex-col items-center justify-center leading-none">
+                        <span className="text-[9px] font-bold text-blue-600 uppercase mb-0.5">{new Date(p.payment_date).toLocaleString('default', { month: 'short' })}</span>
+                        <span className="text-sm font-black text-gray-900">{new Date(p.payment_date).getDate()}</span>
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">{formatUGX(p.amount)}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-gray-400 font-medium">Method: Cash</span>
+                          {p.notes && <span className="text-[10px] text-gray-300">•</span>}
+                          {p.notes && <div className="text-[10px] text-gray-500 line-clamp-1">{p.notes}</div>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest bg-white px-2.5 py-1 rounded-lg border border-gray-100">Settlement</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 text-center border-2 border-dashed border-gray-50 rounded-3xl">
+                <History size={32} className="text-gray-200 mx-auto mb-3" />
+                <p className="text-gray-400 text-sm">No subsequent payments recorded yet.</p>
+                <p className="text-[10px] text-gray-300 mt-1 uppercase tracking-wider">Initial purchase payments are tracked in the Purchase History tab</p>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Seasonal Summary Tab */}

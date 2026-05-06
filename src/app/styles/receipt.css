@@ -89,22 +89,9 @@
     margin: 0;
   }
 
-  /* Hide everything by default */
-  body * {
-    visibility: hidden;
-  }
-
-  /* Show only the POS receipt */
-  .receipt-print-wrapper,
-  .receipt-print-wrapper * {
-    visibility: visible !important;
-  }
-
   .receipt-print-wrapper {
-    position: absolute;
-    left: 0;
-    top: 0;
     width: 80mm;
+    margin: 0 auto;
     background: white !important;
   }
 }

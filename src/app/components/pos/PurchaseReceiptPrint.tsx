@@ -34,8 +34,12 @@ export const PurchaseReceiptPrint = forwardRef<HTMLDivElement, PurchaseReceiptPr
             <span>{purchase.date}</span>
           </div>
           <div className="receipt-row">
-            <span>No:</span>
-            <span className="receipt-mono">{purchase.id.slice(0, 13).toUpperCase()}</span>
+            <span>Serial number:</span>
+            <span className="receipt-mono">
+              {purchase.serial_number 
+                ? String(purchase.serial_number).padStart(4, '0') 
+                : purchase.id.slice(0, 8).toUpperCase()}
+            </span>
           </div>
           <div className="receipt-row">
             <span>Supplier:</span>
@@ -103,6 +107,12 @@ export const PurchaseReceiptPrint = forwardRef<HTMLDivElement, PurchaseReceiptPr
             <div className="receipt-row">
               <span>Adv Recovery:</span>
               <span>-{formatUGX(purchase.advance_deducted)}</span>
+            </div>
+          )}
+          {purchase.cash_paid < (purchase.total_amount - (purchase.advance_deducted || 0)) && (
+            <div className="receipt-row" style={{ color: '#991b1b', fontWeight: 'bold' }}>
+              <span>BALANCE OWED:</span>
+              <span>{formatUGX((purchase.total_amount - (purchase.advance_deducted || 0)) - purchase.cash_paid)}</span>
             </div>
           )}
 

@@ -76,10 +76,12 @@ export default function PurchaseEntry() {
   const [eudrNumber, setEudrNumber] = useState("");
   const [toast, setToast] = useState(false);
   const [manualDeduction, setManualDeduction] = useState<string>("");
+  const [manualPrice, setManualPrice] = useState<string | undefined>(undefined);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [savedPurchase, setSavedPurchase] = useState<any>(null);
+  const [manualCashPaid, setManualCashPaid] = useState<string>("");
 
   const [farmerAdvances, setFarmerAdvances] = useState<Advance[]>([]);
 
@@ -114,6 +116,10 @@ export default function PurchaseEntry() {
             setStandardMoisture(String(existing.standard_moisture));
             setAdvanceDeduct(String(existing.advance_deducted || ''));
             setDate(existing.date);
+             setManualPrice(existing.buying_price !== undefined ? String(existing.buying_price) : undefined);
+            if (existing.cash_paid !== undefined && existing.cash_paid < (existing.total_amount - (existing.advance_deducted || 0))) {
+              setManualCashPaid(String(existing.cash_paid));
+            }
             // Find and set the farmer
             const farmer = farmers.find(f => f.id === existing.farmer_id);
             if (farmer) {
@@ -152,6 +158,7 @@ export default function PurchaseEntry() {
             setIsNewFarmer(!!draft.isNewFarmer);
             setNewFarmerData(draft.newFarmerData || { phone: "", village: "", eudr_number: "" });
             setEudrNumber(draft.eudrNumber || "");
+            setManualPrice(draft.manualPrice !== undefined ? draft.manualPrice : undefined);
             if (draft.selectedFarmer) {
               setSelectedFarmer(draft.selectedFarmer);
               setFarmerSearch(draft.selectedFarmer.name);
@@ -189,16 +196,24 @@ export default function PurchaseEntry() {
         eudrNumber,
         manualDeduction,
         isNewFarmer,
-        newFarmerData
+        newFarmerData,
+        manualPrice
       };
       localStorage.setItem(PURCHASE_DRAFT_KEY, JSON.stringify(draft));
     }
   }, [
     selectedFarmer, coffeeType, grossWeight, moisture, standardMoisture, 
-    advanceDeduct, date, manualDeduction, isNewFarmer, newFarmerData, isEditMode, loading
+    advanceDeduct, date, manualDeduction, isNewFarmer, newFarmerData, manualPrice, isEditMode, loading
   ]);
 
-  const farmerAdvance = farmerAdvances.find(a => a.status === "Active");
+  // Handle cumulative advances for deduction logic
+  const activeAdvances = farmerAdvances.filter(a => a.status === "Active");
+  const totalRemainingAdvance = activeAdvances.reduce((sum, a) => sum + (a.remaining || 0), 0);
+  const totalOriginalAdvance = activeAdvances.reduce((sum, a) => sum + (a.amount || 0), 0);
+  const totalDeductedAdvance = activeAdvances.reduce((sum, a) => sum + (a.deducted || 0), 0);
+  
+  // Use price from the first active advance that specifies one
+  const firstPriceAdvance = activeAdvances.find(a => a.unit_price && a.unit_price > 0);
 
   const gross = parseFloat(grossWeight) || 0;
   const moist = coffeeType === "Kase" ? (parseFloat(moisture) || 0) : 0;
@@ -211,24 +226,27 @@ export default function PurchaseEntry() {
   const moistureLoss = gross > 0 ? (deduction / gross) * 100 : 0;
   
   // If farmer has an active advance with a fixed unit price, use it
-  const isAdvancePrice = !!(farmerAdvance?.unit_price && farmerAdvance.unit_price > 0);
-  const price = isAdvancePrice ? farmerAdvance!.unit_price! : buyingPrices[coffeeType];
+  const isAdvancePrice = !!(firstPriceAdvance?.unit_price && firstPriceAdvance.unit_price > 0);
+  const basePrice = isAdvancePrice ? firstPriceAdvance!.unit_price! : buyingPrices[coffeeType];
+  const price = manualPrice !== undefined ? (parseFloat(manualPrice) || 0) : basePrice;
 
   const totalAmount = payable * price;
 
   useEffect(() => {
-    if (farmerAdvance && totalAmount > 0 && !isNewFarmer) {
-      const maxPossible = Math.min(totalAmount, farmerAdvance.remaining);
+    if (activeAdvances.length > 0 && totalAmount > 0 && !isNewFarmer) {
+      const maxPossible = Math.min(totalAmount, totalRemainingAdvance);
       // We automatically set the deduction to the maximum possible amount
       // This follows the "deduct first" rule requested by the user
       setAdvanceDeduct(String(Math.round(maxPossible)));
-    } else if (!farmerAdvance || isNewFarmer || totalAmount <= 0) {
+    } else if (activeAdvances.length === 0 || isNewFarmer || totalAmount <= 0) {
       setAdvanceDeduct("");
     }
-  }, [totalAmount, farmerAdvance?.id, isNewFarmer]);
+  }, [totalAmount, totalRemainingAdvance, isNewFarmer]);
 
   const advDed = parseFloat(advanceDeduct) || 0;
-  const cashToPay = totalAmount - advDed;
+  const cashToPayFull = Math.max(0, totalAmount - advDed);
+  const cashPaid = manualCashPaid !== "" ? (parseFloat(manualCashPaid) || 0) : cashToPayFull;
+  const debt = Math.max(0, cashToPayFull - cashPaid);
 
   const filteredFarmers = allFarmers.filter(f =>
     f.name.toLowerCase().includes(farmerSearch.toLowerCase()) ||
@@ -261,6 +279,9 @@ export default function PurchaseEntry() {
     if (!grossWeight || gross <= 0) e.grossWeight = "Enter a valid gross weight";
     if (coffeeType === "Kase" && (!moisture || moist < 0 || moist > 100)) e.moisture = "Enter a valid moisture content (0–100%)";
     if (!activeSeason) e.season = "No active season found. Please contact admin.";
+    if (price <= 0) e.price = "Enter a valid buying price";
+    if (!date) e.date = "Please select a date";
+    if (!profile) e.auth = "Authentication error. Please refresh the page.";
     return e;
   };
 
@@ -271,7 +292,7 @@ export default function PurchaseEntry() {
     try {
       setSaving(true);
       setErrors({});
-
+      const adminId = getEffectiveAdminId(profile);
       let finalPurchaseData: any;
 
       if (isEditMode && editId) {
@@ -286,7 +307,7 @@ export default function PurchaseEntry() {
           buying_price: price,
           total_amount: totalAmount,
           advance_deducted: advDed,
-          cash_paid: cashToPay,
+          cash_paid: cashPaid,
           date: date,
         };
         await purchasesService.update(editId, updateData);
@@ -302,7 +323,7 @@ export default function PurchaseEntry() {
             village: newFarmerData.village,
             eudr_number: eudrNumber,
             region: "Western Uganda",
-            admin_id: getEffectiveAdminId(profile) || '',
+            admin_id: (adminId === 'SUPER_ADMIN' ? profile?.id : adminId) || null,
           };
 
           if (isOnline) {
@@ -340,32 +361,69 @@ export default function PurchaseEntry() {
           p_buying_price: price,
           p_total_amount: totalAmount,
           p_advance_deducted: advDed,
-          p_cash_paid: cashToPay,
-          p_field_agent_id: profile?.id || '',
-          p_admin_id: getEffectiveAdminId(profile) || '',
+          p_cash_paid: cashPaid,
+          p_field_agent_id: profile?.id || null, // Never pass empty string to UUID
+          p_admin_id: (adminId === 'SUPER_ADMIN' ? profile?.id : adminId) || null, // Convert 'SUPER_ADMIN' to real ID for DB storage
         };
 
         if (isOnline) {
           const { data: rpcData, error: rpcError } = await supabase.rpc('record_purchase_v1', purchasePayload);
           if (rpcError) throw rpcError;
           if (rpcData && !rpcData.success) throw new Error(rpcData.error || 'Failed to record purchase');
+
+          // Fetch the full record to get the serial_number generated by the DB trigger
+          try {
+            const fullRecord = await purchasesService.getById(purchasePayload.p_id);
+            if (fullRecord) {
+              finalPurchaseData = fullRecord;
+            } else {
+              // Fallback to local data if fetch fails for some reason
+              finalPurchaseData = {
+                id: purchasePayload.p_id,
+                farmer_id: purchasePayload.p_farmer_id,
+                date: purchasePayload.p_date,
+                coffee_type: purchasePayload.p_coffee_type,
+                gross_weight: purchasePayload.p_gross_weight,
+                payable_weight: purchasePayload.p_payable_weight,
+                buying_price: purchasePayload.p_buying_price,
+                total_amount: purchasePayload.p_total_amount,
+                advance_deducted: purchasePayload.p_advance_deducted,
+                cash_paid: purchasePayload.p_cash_paid,
+                field_agent_id: purchasePayload.p_field_agent_id,
+              };
+            }
+          } catch (fetchErr) {
+            console.error("Error fetching saved record for receipt:", fetchErr);
+            finalPurchaseData = {
+              id: purchasePayload.p_id,
+              farmer_id: purchasePayload.p_farmer_id,
+              date: purchasePayload.p_date,
+              coffee_type: purchasePayload.p_coffee_type,
+              gross_weight: purchasePayload.p_gross_weight,
+              payable_weight: purchasePayload.p_payable_weight,
+              buying_price: purchasePayload.p_buying_price,
+              total_amount: purchasePayload.p_total_amount,
+              advance_deducted: purchasePayload.p_advance_deducted,
+              cash_paid: purchasePayload.p_cash_paid,
+              field_agent_id: purchasePayload.p_field_agent_id,
+            };
+          }
         } else {
           await addToSyncQueue('CREATE_PURCHASE_ATOMIC', purchasePayload);
+          finalPurchaseData = {
+            id: purchasePayload.p_id,
+            farmer_id: purchasePayload.p_farmer_id,
+            date: purchasePayload.p_date,
+            coffee_type: purchasePayload.p_coffee_type,
+            gross_weight: purchasePayload.p_gross_weight,
+            payable_weight: purchasePayload.p_payable_weight,
+            buying_price: purchasePayload.p_buying_price,
+            total_amount: purchasePayload.p_total_amount,
+            advance_deducted: purchasePayload.p_advance_deducted,
+            cash_paid: purchasePayload.p_cash_paid,
+            field_agent_id: purchasePayload.p_field_agent_id,
+          };
         }
-
-        finalPurchaseData = {
-          id: purchasePayload.p_id,
-          farmer_id: purchasePayload.p_farmer_id,
-          date: purchasePayload.p_date,
-          coffee_type: purchasePayload.p_coffee_type,
-          gross_weight: purchasePayload.p_gross_weight,
-          payable_weight: purchasePayload.p_payable_weight,
-          buying_price: purchasePayload.p_buying_price,
-          total_amount: purchasePayload.p_total_amount,
-          advance_deducted: purchasePayload.p_advance_deducted,
-          cash_paid: purchasePayload.p_cash_paid,
-          field_agent_id: purchasePayload.p_field_agent_id,
-        };
       }
 
       setSavedPurchase({
@@ -661,7 +719,7 @@ export default function PurchaseEntry() {
                   {(["Kiboko", "Red", "Kase"] as const).map(type => (
                     <button
                       key={type}
-                      onClick={() => setCoffeeType(type)}
+                      onClick={() => { setCoffeeType(type); setManualPrice(undefined); }}
                       className="py-3 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1"
                       style={{
                         borderColor: coffeeType === type ? 
@@ -767,20 +825,53 @@ export default function PurchaseEntry() {
               {/* Active Price Display */}
               <div>
                 <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                  Active Buying Price
-                  {isAdvancePrice && (
+                  Buying Price / kg (UGX) <span style={{ color: "#DC2626" }}>*</span>
+                  {isAdvancePrice && manualPrice === undefined && (
                     <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-700 font-bold uppercase tracking-wider">
                       Advance Fixed Price
                     </span>
                   )}
                 </label>
-                <div className="px-3.5 py-2.5 rounded-xl border border-gray-200 flex items-center justify-between"
-                  style={{ backgroundColor: isAdvancePrice ? "#fff7ed" : "#f0fdf4" }}>
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 700, color: isAdvancePrice ? "#9a3412" : "#14532D" }}>UGX {price.toLocaleString()}</span>
-                  <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: isAdvancePrice ? "#F59E0B" : "#16A34A" }}>
-                    per kg · {isAdvancePrice ? "Fixed from Advance" : coffeeType}
-                  </span>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={manualPrice !== undefined ? manualPrice : basePrice}
+                    onChange={e => setManualPrice(e.target.value)}
+                    placeholder="Enter price"
+                    className={`w-full px-3.5 py-2.5 rounded-xl border transition-all outline-none ${
+                       errors.price ? "border-red-400 bg-red-50" : (manualPrice !== undefined ? "border-amber-400 bg-amber-50" : "border-gray-200 bg-white")
+                    } focus:border-[#14532D] focus:ring-2 focus:ring-[#14532D]/10`}
+                    style={{ 
+                      fontFamily: "Inter, sans-serif", 
+                      fontSize: "14px", 
+                      fontWeight: 600,
+                      color: manualPrice !== undefined ? "#92400e" : (isAdvancePrice ? "#9a3412" : "#14532D") 
+                    }}
+                  />
+                  {manualPrice !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => setManualPrice(undefined)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      title="Reset to default price"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
                 </div>
+                {errors.price && <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#DC2626", marginTop: "4px" }}>{errors.price}</p>}
+                {manualPrice === undefined && (
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: isAdvancePrice ? "#F59E0B" : "#16A34A", marginTop: "4px" }}>
+                    {isAdvancePrice ? "Fixed from Advance" : `Standard price for ${coffeeType}`}
+                  </p>
+                )}
+                {manualPrice !== undefined && (
+                  <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#F59E0B", marginTop: "4px" }}>
+                    Custom override applied (Base: UGX {basePrice.toLocaleString()})
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -800,9 +891,9 @@ export default function PurchaseEntry() {
 
               <div className="grid grid-cols-3 gap-4 mb-4">
                 {[
-                  { label: "Total Advance Given", value: farmerAdvance ? formatUGX(farmerAdvance.amount) : "UGX 0", color: "#374151" },
-                  { label: "Total Deducted", value: farmerAdvance ? formatUGX(farmerAdvance.deducted) : "UGX 0", color: "#16A34A" },
-                  { label: "Current Balance", value: farmerAdvance ? formatUGX(farmerAdvance.remaining) : "UGX 0", color: farmerAdvance ? "#DC2626" : "#6B7280" },
+                  { label: "Total Advance Given", value: activeAdvances.length > 0 ? formatUGX(totalOriginalAdvance) : "UGX 0", color: "#374151" },
+                  { label: "Total Deducted", value: activeAdvances.length > 0 ? formatUGX(totalDeductedAdvance) : "UGX 0", color: "#16A34A" },
+                  { label: "Current Balance", value: activeAdvances.length > 0 ? formatUGX(totalRemainingAdvance) : "UGX 0", color: activeAdvances.length > 0 ? "#DC2626" : "#6B7280" },
                 ].map(item => (
                   <div key={item.label} className="p-3 rounded-xl" style={{ backgroundColor: "#F8FAFC", border: "1px solid #F1F5F9" }}>
                     <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280", marginBottom: "4px" }}>{item.label}</div>
@@ -825,7 +916,7 @@ export default function PurchaseEntry() {
                   <input
                     type="number"
                     min="0"
-                    max={farmerAdvance?.remaining || 0}
+                    max={totalRemainingAdvance}
                     value={advanceDeduct}
                     onChange={e => setAdvanceDeduct(e.target.value)}
                     placeholder="0"
@@ -833,9 +924,9 @@ export default function PurchaseEntry() {
                     style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151", paddingLeft: "48px" }}
                   />
                 </div>
-                {farmerAdvance && (
+                {activeAdvances.length > 0 && (
                   <p style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280", marginTop: "4px" }}>
-                    Max deductible: {formatUGX(farmerAdvance.remaining)}
+                    Max deductible: {formatUGX(totalRemainingAdvance)}
                   </p>
                 )}
               </div>
@@ -950,8 +1041,41 @@ export default function PurchaseEntry() {
                   <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#86efac", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
                     Cash to Pay Client
                   </div>
-                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: "28px", fontWeight: 800, color: "#ffffff", lineHeight: 1.1 }}>
-                    {cashToPay > 0 ? `UGX ${Math.round(cashToPay).toLocaleString()}` : "UGX 0"}
+                   <div style={{ fontFamily: "Inter, sans-serif", fontSize: "28px", fontWeight: 800, color: "#ffffff", lineHeight: 1.1 }}>
+                    {cashPaid > 0 ? `UGX ${Math.round(cashPaid).toLocaleString()}` : "UGX 0"}
+                  </div>
+                  {debt > 0 && (
+                    <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#fecaca", marginTop: "8px", paddingTop: "8px", borderTop: "1px border rgba(255,255,255,0.1)" }}>
+                      DEBT TO FARMER: UGX {Math.round(debt).toLocaleString()}
+                    </div>
+                  )}
+                  <div className="mt-4 flex flex-col gap-2">
+                    <label style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#86efac", fontWeight: 600 }}>CASH PAID NOW (EDITABLE)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-green-300 text-xs font-bold">UGX</span>
+                      <input 
+                        type="number"
+                        value={manualCashPaid !== "" ? manualCashPaid : Math.round(cashToPayFull).toString()}
+                        onChange={(e) => setManualCashPaid(e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded-lg py-2 pl-12 pr-3 text-white font-bold outline-none focus:border-white/40 transition-all"
+                        placeholder="0"
+                      />
+                      {manualCashPaid !== "" && (
+                        <button 
+                          onClick={() => setManualCashPaid("")}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-white/10 rounded"
+                        >
+                          <X size={14} color="#fff" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManualCashPaid("0")}
+                      className="mt-2 w-full py-1.5 border border-white/30 rounded-lg text-[10px] font-black uppercase tracking-widest text-green-100 hover:bg-white/10 transition-all"
+                    >
+                      Pay Later (Full Debt)
+                    </button>
                   </div>
                   {payable > 0 && (
                     <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#a7f3d0", marginTop: "6px" }}>

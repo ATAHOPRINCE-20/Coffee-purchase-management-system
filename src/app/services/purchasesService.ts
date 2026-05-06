@@ -19,6 +19,7 @@ export interface Purchase {
   field_agent_id: string;
   admin_id?: string;
   created_at?: string;
+  serial_number?: number;
 }
 
 export const purchasesService = {
@@ -147,7 +148,7 @@ export const purchasesService = {
     if (seasonId) {
       seasonalQuery = supabase
         .from('purchases')
-        .select('payable_weight, total_amount')
+        .select('payable_weight, total_amount, coffee_type')
         .eq('season_id', seasonId);
     }
 
@@ -184,6 +185,11 @@ export const purchasesService = {
           Kiboko: todayData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
           Red: todayData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
           Kase: todayData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+        },
+        type_values: {
+          Kiboko: todayData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Red: todayData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kase: todayData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         }
       },
       monthly: {
@@ -193,11 +199,26 @@ export const purchasesService = {
           Kiboko: monthlyData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
           Red: monthlyData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
           Kase: monthlyData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+        },
+        type_values: {
+          Kiboko: monthlyData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Red: monthlyData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kase: monthlyData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         }
       },
       seasonal: {
         weight: seasonalResult.data?.reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
         value: seasonalResult.data?.reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+        types: {
+          Kiboko: seasonalResult.data?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Red: seasonalResult.data?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Kase: seasonalResult.data?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+        },
+        type_values: {
+          Kiboko: seasonalResult.data?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Red: seasonalResult.data?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kase: seasonalResult.data?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+        }
       }
     };
 

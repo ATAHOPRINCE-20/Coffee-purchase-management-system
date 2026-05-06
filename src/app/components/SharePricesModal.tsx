@@ -38,7 +38,7 @@ export function SharePricesModal({ isOpen, onClose, prices, dateStr }: any) {
       
       const a = document.createElement("a");
       a.href = dataUrl;
-      a.download = `CoffeeTrack_Prices_${dateStr}.png`;
+      a.download = `coffexx_Prices_${dateStr}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useReactToPrint } from 'react-to-print';
 import { Layout } from "../components/Layout";
 import { 
   User, Bell, Shield, Smartphone, Globe, 
   Save, Loader2, Check, ChevronRight, LogOut,
-  Mail, MapPin, Building2
+  Mail, MapPin, Building2, Wallet, Plus, ArrowUpRight, ArrowDownLeft, Printer
 } from "lucide-react";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
-import { settingsService, CompanyProfile } from "../services/settingsService";
+import { settingsService, CompanyProfile, CapitalLedgerEntry } from "../services/settingsService";
+import { formatCurrency } from "../utils/formatters";
+import { CapitalLedgerPrint } from "../components/pos/CapitalLedgerPrint";
 
 const Section = ({ icon: Icon, title, subtitle, children }: { icon: any; title: string; subtitle: string; children: React.ReactNode }) => (
   <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm mb-6">
@@ -30,6 +33,19 @@ export default function Settings() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [ledger, setLedger] = useState<CapitalLedgerEntry[]>([]);
+  const [showTopUp, setShowTopUp] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState("");
+  const [topUpNotes, setTopUpNotes] = useState("");
+  const [ledgerPage, setLedgerPage] = useState(0);
+  const [hasMoreLedger, setHasMoreLedger] = useState(true);
+  const PAGE_SIZE = 20;
+
+  const printRef = useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `Capital_Ledger_${new Date().toISOString().split('T')[0]}`,
+  });
 
   // Determine permissions
   const canManageAgency = profile?.role === "Admin" || profile?.role === "Manager" || profile?.role === "Super Admin";
@@ -51,8 +67,9 @@ export default function Settings() {
   });
 
   useEffect(() => {
-    if (canManageAgency && activeTab === "Agency") {
-      fetchAgencyDetails();
+    if (canManageAgency) {
+      if (activeTab === "Agency" || activeTab === "Capital") fetchAgencyDetails();
+      if (activeTab === "Capital") fetchCapitalLedger();
     }
   }, [activeTab, profile, canManageAgency]);
 
@@ -70,6 +87,49 @@ export default function Settings() {
       console.error("Failed to load agency details:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCapitalLedger = async (page: number = 0) => {
+    const adminId = getEffectiveAdminId(profile);
+    if (!adminId) return;
+
+    setLoading(true);
+    try {
+      const data = await settingsService.getCapitalLedger(adminId, PAGE_SIZE, page * PAGE_SIZE);
+      if (page === 0) {
+        setLedger(data);
+      } else {
+        setLedger(prev => [...prev, ...data]);
+      }
+      setHasMoreLedger(data.length === PAGE_SIZE);
+      setLedgerPage(page);
+    } catch (err) {
+      console.error("Ledger fetch error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTopUp = async () => {
+    const adminId = getEffectiveAdminId(profile);
+    if (!adminId || !topUpAmount) return;
+
+    setSaving(true);
+    try {
+      await settingsService.addCapital(adminId, parseFloat(topUpAmount), topUpNotes);
+      setTopUpAmount("");
+      setTopUpNotes("");
+      setShowTopUp(false);
+      fetchCapitalLedger();
+      fetchAgencyDetails(); // Refresh balance in profile
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      console.error("Top-up failed:", err);
+      setError("Top-up failed. Please try again.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -102,6 +162,7 @@ export default function Settings() {
   const menuItems = [
     { id: "Profile", label: "Profile Information", icon: User },
     { id: "Agency", label: "Agency Details", icon: Globe, hidden: !canManageAgency },
+    { id: "Capital", label: "Capital & Wallet", icon: Wallet, hidden: !canManageAgency },
     { id: "Notifications", label: "Notifications", icon: Bell },
     { id: "Security", label: "Security & Login", icon: Shield },
   ];
@@ -267,6 +328,160 @@ export default function Settings() {
                     </div>
                   </>
                 )}
+              </div>
+            </Section>
+          )}
+
+          {activeTab === "Capital" && canManageAgency && (
+            <Section icon={Wallet} title="Capital Management" subtitle="Manage your operational funds and track expenditure">
+              <div className="space-y-6">
+                <div className="bg-[#14532D] rounded-2xl p-6 text-white flex justify-between items-center">
+                  <div>
+                    <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">Current Balance</p>
+                    <h2 className="text-3xl font-black">{formatCurrency(agencyData.capital || 0)}</h2>
+                  </div>
+                  <button 
+                    onClick={() => setShowTopUp(true)}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl bg-white text-[#14532D] text-sm font-bold hover:bg-gray-50 transition-all shadow-md"
+                  >
+                    <Plus size={18} />
+                    Top up Capital
+                  </button>
+                </div>
+
+                {/* Summary Stats */}
+                {ledger.length > 0 && (
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-green-50 border border-green-100 rounded-2xl p-4">
+                      <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">Total Invested</p>
+                      <p className="text-lg font-black text-green-800">
+                        {formatCurrency(ledger.filter(e => e.type === 'Top-up').reduce((sum, e) => sum + e.amount, 0))}
+                      </p>
+                      <p className="text-[10px] text-green-500 mt-1">{ledger.filter(e => e.type === 'Top-up').length} top-up(s)</p>
+                    </div>
+                    <div className="bg-red-50 border border-red-100 rounded-2xl p-4">
+                      <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">Total Spent</p>
+                      <p className="text-lg font-black text-red-800">
+                        {formatCurrency(Math.abs(ledger.filter(e => e.amount < 0).reduce((sum, e) => sum + e.amount, 0)))}
+                      </p>
+                      <p className="text-[10px] text-red-400 mt-1">purchases & expenses</p>
+                    </div>
+                    <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4">
+                      <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">Balance</p>
+                      <p className="text-lg font-black text-gray-900">{formatCurrency(agencyData.capital || 0)}</p>
+                      <p className="text-[10px] text-gray-400 mt-1">available funds</p>
+                    </div>
+                  </div>
+                )}
+
+                {showTopUp && (
+                  <div className="bg-gray-50 rounded-2xl p-6 border border-gray-100 animate-in fade-in slide-in-from-top-4 duration-300">
+                    <h4 className="font-bold text-gray-900 mb-4">Top up Operating Capital</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Amount (UGX)</label>
+                        <input 
+                          type="number"
+                          placeholder="0"
+                          value={topUpAmount}
+                          onChange={e => setTopUpAmount(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] transition-all text-sm font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Note (Optional)</label>
+                        <input 
+                          type="text"
+                          placeholder="e.g. Weekly funding"
+                          value={topUpNotes}
+                          onChange={e => setTopUpNotes(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-[#14532D] transition-all text-sm font-medium"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-3">
+                      <button 
+                        onClick={() => setShowTopUp(false)}
+                        className="px-4 py-2 text-sm font-bold text-gray-500 hover:text-gray-700"
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        onClick={handleTopUp}
+                        disabled={saving || !topUpAmount}
+                        className="px-6 py-2 rounded-xl bg-[#14532D] text-white text-sm font-bold hover:opacity-90 transition-all disabled:opacity-50"
+                      >
+                        {saving ? "Processing..." : "Confirm Top up"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                      Recent Transactions
+                      <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-bold">LATEST 20</span>
+                    </h4>
+                    <button 
+                      onClick={() => handlePrint()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all text-[11px] font-bold"
+                    >
+                      <Printer size={13} />
+                      Print Ledger
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {loading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 size={24} className="animate-spin text-[#14532D]" />
+                      </div>
+                    ) : ledger.length === 0 ? (
+                      <div className="text-center py-12 border-2 border-dashed border-gray-100 rounded-2xl">
+                        <p className="text-sm text-gray-400">No transactions yet. Add capital to get started.</p>
+                      </div>
+                    ) : (
+                      <>
+                        {ledger.map(entry => (
+                          <div key={entry.id} className="flex items-center justify-between p-4 rounded-2xl border border-gray-50 hover:border-gray-100 transition-all bg-white group">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${entry.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                                {entry.amount > 0 ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-gray-900">{entry.notes || entry.type}</p>
+                                <p className="text-[10px] text-gray-400 font-medium">
+                                  {new Date(entry.created_at).toLocaleDateString()} • {new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-black ${entry.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {entry.amount > 0 ? '+' : ''}{formatCurrency(entry.amount)}
+                              </p>
+                              <p className="text-[9px] text-gray-300 font-bold uppercase tracking-tighter">{entry.type}</p>
+                            </div>
+                          </div>
+                        ))}
+                        {hasMoreLedger && (
+                          <div className="mt-4 text-center">
+                            <button
+                              onClick={() => fetchCapitalLedger(ledgerPage + 1)}
+                              className="px-6 py-2 rounded-xl text-xs font-bold text-green-700 bg-green-50 border border-green-100 hover:bg-green-100 transition-all"
+                            >
+                              Load More Transactions
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Hidden Print Component */}
+              <div className="hidden">
+                <CapitalLedgerPrint ref={printRef} ledger={ledger} company={agencyData} />
               </div>
             </Section>
           )}

@@ -23,6 +23,7 @@ const navItems = [
   ]},
   { icon: Users, label: "Clients", href: "/farmers", roles: ["Admin", "Manager", "Field Agent", "Super Admin"] },
   { icon: CreditCard, label: "Advances", href: "/advances", roles: ["Admin", "Manager", "Field Agent"] },
+  { icon: CreditCard, label: "Farmer Debts", href: "/debts", roles: ["Admin", "Manager", "Field Agent"] },
   { icon: Tag, label: "Prices", href: "/prices", roles: ["Admin", "Manager", "Field Agent"] },
   { icon: BarChart3, label: "Reports", href: "/reports", roles: ["Admin", "Manager", "Field Agent"] },
   { icon: Receipt, label: "Expenses", href: "/expenses", roles: ["Admin", "Manager", "Field Agent"] },
@@ -73,11 +74,11 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-5 border-b border-[#1a6b35]">
         <div className="w-10 h-10 flex items-center justify-center shrink-0">
-          <img src="/icon.png" alt="CoffeeTrack Logo" className="w-full h-full object-contain drop-shadow-sm" />
+          <img src="/icon.png" alt="coffexx Logo" className="w-full h-full object-contain drop-shadow-sm" />
         </div>
         {sidebarOpen && (
           <div>
-            <div style={{ color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "15px", fontWeight: 700, lineHeight: 1.2 }}>CoffeeTrack</div>
+            <div style={{ color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "15px", fontWeight: 700, lineHeight: 1.2 }}>coffexx</div>
             <div style={{ color: "#86efac", fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 400 }}>Management System</div>
           </div>
         )}

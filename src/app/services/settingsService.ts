@@ -8,6 +8,17 @@ export interface CompanyProfile {
   email?: string;
   location?: string;
   updated_at?: string;
+  capital?: number;
+}
+
+export interface CapitalLedgerEntry {
+  id: string;
+  admin_id: string;
+  amount: number;
+  type: 'Top-up' | 'Purchase' | 'Advance' | 'Expense' | 'Adjustment';
+  reference_id?: string;
+  notes?: string;
+  created_at: string;
 }
 
 export const settingsService = {
@@ -32,8 +43,9 @@ export const settingsService = {
   },
 
   async updateCompanyProfile(adminId: string, profile: Partial<CompanyProfile>): Promise<CompanyProfile> {
-    // Extract everything except admin_id and id to prevent accidental overwrites
-    const { admin_id, id, ...updateData } = profile;
+    // Extract everything except admin_id, id, and capital to prevent accidental overwrites
+    // Capital is managed exclusively via the capital_ledger triggers.
+    const { admin_id, id, capital, ...updateData } = profile;
     
     const { data, error } = await supabase
       .from('company_profiles')
@@ -49,5 +61,30 @@ export const settingsService = {
       throw error;
     }
     return data;
+  },
+
+  async getCapitalLedger(adminId: string, limit: number = 50, offset: number = 0): Promise<CapitalLedgerEntry[]> {
+    const { data, error } = await supabase
+      .from('capital_ledger')
+      .select('*')
+      .eq('admin_id', adminId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+    
+    if (error) throw error;
+    return data || [];
+  },
+
+  async addCapital(adminId: string, amount: number, notes: string): Promise<void> {
+    const { error } = await supabase
+      .from('capital_ledger')
+      .insert({
+        admin_id: adminId,
+        amount,
+        type: 'Top-up',
+        notes
+      });
+
+    if (error) throw error;
   }
 };

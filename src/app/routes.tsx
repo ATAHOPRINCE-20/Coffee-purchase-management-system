@@ -26,6 +26,7 @@ import Expenses from "./pages/Expenses";
 import Sales from "./pages/Sales";
 import SaleHistory from "./pages/SaleHistory";
 import Settlement from "./pages/Settlement";
+import FarmerDebts from "./pages/FarmerDebts";
 
 import UserManagement from "./pages/UserManagement";
 import NotificationLog from "./pages/NotificationLog";
@@ -69,6 +70,7 @@ export const router = createBrowserRouter([
           { path: "/expenses", Component: Expenses },
           { path: "/history", Component: SaleHistory },
           { path: "/settle", Component: Settlement },
+          { path: "/debts", Component: FarmerDebts },
         ],
       },
       {

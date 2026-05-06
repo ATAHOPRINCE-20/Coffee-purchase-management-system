@@ -38,7 +38,7 @@ export default function ForgotPassword() {
         {/* Logo & Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-20 h-20 mb-4">
-            <img src="/icon.png" alt="CoffeeTrack Logo" className="w-full h-full object-contain drop-shadow-xl" />
+            <img src="/icon.png" alt="coffexx Logo" className="w-full h-full object-contain drop-shadow-xl" />
           </div>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: '24px', fontWeight: 800, color: '#111827' }}>
             Account Recovery

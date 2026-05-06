@@ -175,9 +175,10 @@ export default function SalesPage() {
     try {
       setSaving(true);
       const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
+      if (!adminId || !profile) return;
+      
       const newSale = await salesService.create({
-        admin_id: adminId,
+        admin_id: (adminId === 'SUPER_ADMIN' ? profile.id : adminId) || '',
         season_id: activeSeason?.id,
         date,
         coffee_type: coffeeType,

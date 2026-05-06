@@ -13,7 +13,7 @@ export interface DailyPriceEntry {
   notes: string;
 }
 
-const STORAGE_KEY = "coffeetrack_daily_prices";
+const STORAGE_KEY = "coffexx_daily_prices";
 
 function loadFromStorage(): DailyPriceEntry[] {
   try {

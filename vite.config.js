@@ -13,8 +13,8 @@ export default defineConfig({
             registerType: 'autoUpdate',
             includeAssets: ['icon.png'],
             manifest: {
-                name: 'Coffee Purchase Management System',
-                short_name: 'CoffeeTrack',
+                name: 'coffexx',
+                short_name: 'coffexx',
                 description: 'Manage coffee purchases, farmers, and advances offline.',
                 theme_color: '#14532D',
                 background_color: '#F8FAFC',

@@ -132,9 +132,10 @@ export default function Expenses() {
     try {
       setSaving(true);
       const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
+      if (!adminId || !profile) return;
+      
       const newExpense = await expensesService.create({
-        admin_id: adminId,
+        admin_id: (adminId === 'SUPER_ADMIN' ? profile.id : adminId) || '',
         season_id: activeSeason?.id,
         category,
         type: expType,

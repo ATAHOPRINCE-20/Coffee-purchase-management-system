@@ -4,9 +4,10 @@ import {
   Dialog,
   DialogContent,
 } from "../components/ui/dialog";
-import { Printer, X, Loader2, Coffee } from 'lucide-react';
+import { Printer, X, Loader2, Coffee, Download } from 'lucide-react';
 import { Separator } from "../components/ui/separator";
-import { ScrollArea } from "../components/ui/scroll-area";
+import { toPng } from 'html-to-image';
+import { jsPDF } from "jspdf";
 import { settingsService, CompanyProfile } from "../services/settingsService";
 import { getEffectiveAdminId } from "../hooks/useAuth";
 import { PurchaseReceiptPrint } from "./pos/PurchaseReceiptPrint";
@@ -20,6 +21,7 @@ interface PurchaseReceiptModalProps {
 export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseReceiptModalProps) {
   const [company, setCompany] = useState<CompanyProfile | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const componentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,22 +50,62 @@ export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseRece
     documentTitle: `Receipt_${purchase?.id?.slice(0, 8)}`,
   });
 
+  const handleDownloadPDF = async () => {
+    if (!componentRef.current) return;
+    try {
+      setIsDownloading(true);
+      // Briefly make it visible in typical flow for html-to-image to capture
+      const el = componentRef.current;
+      el.style.opacity = '1';
+      
+      // We grab roughly double resolution for crisp PDF text
+      const dataUrl = await toPng(el, {
+        quality: 1.0,
+        backgroundColor: '#ffffff',
+        width: el.scrollWidth,
+        height: el.scrollHeight,
+        pixelRatio: 2
+      });
+      
+      el.style.opacity = '0'; // Re-hide it
+
+      const imgProps = { width: el.scrollWidth, height: el.scrollHeight };
+      const pdfWidth = 80; // 80mm standard pos width
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: [pdfWidth, pdfHeight]
+      });
+      
+      pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Receipt_${purchase?.id?.slice(0, 8)}.pdf`);
+    } catch (err) {
+      console.error('Failed to generate receipt PDF:', err);
+      alert('Failed to generate PDF. Please try Printing instead.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   if (!purchase) return null;
 
   const formatUGX = (v: number) => `UGX ${Math.round(v).toLocaleString()}`;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md p-0 overflow-hidden border-none shadow-2xl bg-white flex flex-col h-[90vh] md:h-auto md:max-h-[85vh]">
-        {/* Minimal Close for Screen only */}
-        <div className="flex justify-end p-2 no-print absolute right-0 top-0 z-10">
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400">
-            <X size={20} />
-          </button>
-        </div>
+      <DialogContent className="sm:max-w-md w-[92vw] max-w-[400px] p-0 overflow-hidden border-none shadow-2xl rounded-2xl bg-white max-h-[90dvh] md:max-h-[85vh]">
+        <div className="flex flex-col max-h-[90dvh] md:max-h-[85vh] h-full relative">
+          {/* Minimal Close for Screen only */}
+          <div className="flex justify-end p-2 no-print absolute right-0 top-0 z-10 w-full pointer-events-none">
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 bg-white/90 shadow-sm m-2 pointer-events-auto border border-gray-100 cursor-pointer">
+              <X size={20} />
+            </button>
+          </div>
 
-        <ScrollArea className="flex-1 overflow-y-auto no-print">
-          <div className="p-6 md:p-10 space-y-6 bg-white pt-12 md:pt-10">
+          <div className="flex-1 overflow-y-auto w-full no-print bg-white isolate">
+            <div className="p-5 md:p-8 space-y-5 pt-14 md:pt-12">
             {/* Receipt Header - Matching Image Style */}
             <div className="text-center space-y-1 pb-4">
               <h2 className="text-xl md:text-2xl font-black text-gray-900 uppercase tracking-tight">
@@ -95,8 +137,12 @@ export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseRece
                 <span className="font-bold text-gray-900">{purchase.date}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-[10px] uppercase font-bold text-gray-600">Receipt No.</span>
-                <span className="font-mono text-[10px] font-bold text-gray-900">{purchase.id.slice(0, 13).toUpperCase()}</span>
+                <span className="text-[10px] uppercase font-bold text-gray-600">Serial number</span>
+                <span className="font-mono text-[10px] font-bold text-gray-900">
+                  {purchase.serial_number 
+                    ? String(purchase.serial_number).padStart(4, '0') 
+                    : purchase.id.slice(0, 8).toUpperCase()}
+                </span>
               </div>
               
               <div className="pt-2">
@@ -175,6 +221,13 @@ export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseRece
                   <span className="font-bold text-red-600 text-sm">−{formatUGX(purchase.advance_deducted)}</span>
                 </div>
               )}
+
+              {purchase.cash_paid < (purchase.total_amount - (purchase.advance_deducted || 0)) && (
+                <div className="flex justify-between items-center py-1 mt-1 border-t border-dashed border-gray-100">
+                  <span className="text-red-700 font-bold text-[10px] uppercase tracking-tight">Balance Owed (Debt)</span>
+                  <span className="font-bold text-red-700 text-sm">{formatUGX((purchase.total_amount - (purchase.advance_deducted || 0)) - purchase.cash_paid)}</span>
+                </div>
+              )}
             </div>
 
             {/* Final Cash */}
@@ -192,10 +245,10 @@ export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseRece
               Thank you for choosing us!
             </p>
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Hidden POS Receipt Component for Printing */}
-        <div style={{ display: 'none' }}>
+        <div className="absolute opacity-0 pointer-events-none" style={{ top: '-9999px', left: '-9999px' }}>
           <PurchaseReceiptPrint 
             ref={componentRef} 
             purchase={purchase} 
@@ -203,19 +256,28 @@ export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseRece
           />
         </div>
 
-        <div className="p-4 md:p-6 bg-gray-50 border-t border-gray-100 flex gap-3 no-print mt-auto">
+        <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3 no-print shrink-0 relative z-20">
           <button 
             onClick={onClose}
-            className="flex-1 py-3 bg-white border border-gray-200 text-gray-600 rounded-xl font-bold text-sm hover:bg-gray-50 transition-colors"
+            className="flex py-3 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-50 transition-colors justify-center"
           >
             Close
+          </button>
+          <button 
+            onClick={handleDownloadPDF}
+            disabled={isDownloading}
+            className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-bold text-sm hover:bg-amber-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-amber-900/10 disabled:opacity-70"
+          >
+            {isDownloading ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
+            <span className="hidden sm:inline">Save</span> PDF
           </button>
           <button 
             onClick={() => handlePrint()}
             className="flex-1 py-3 bg-green-700 text-white rounded-xl font-bold text-sm hover:bg-green-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-900/10"
           >
-            <Printer size={16} /> Print Receipt
+            <Printer size={16} /> Print
           </button>
+        </div>
         </div>
       </DialogContent>
     </Dialog>

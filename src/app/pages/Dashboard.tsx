@@ -16,12 +16,14 @@ import { advancesService } from "../services/advancesService";
 import { seasonsService, Season } from "../services/seasonsService";
 import { pricesService, BuyingPrice } from "../services/pricesService";
 import { agentAdvancesService } from "../services/agentAdvancesService";
+import { farmerPaymentsService } from "../services/farmerPaymentsService";
+import { settingsService, CompanyProfile } from "../services/settingsService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { getEATDateString, getEATGreeting } from "../utils/dateUtils";
-
-const formatUGX = (v: number) => `UGX ${v.toLocaleString()}`;
-
+import { formatCurrency } from "../utils/formatters";
 import { SharePricesModal } from "../components/SharePricesModal";
+
+const formatUGX = (v: number) => `UGX ${(v || 0).toLocaleString()}`;
 
 function StatCard({ icon: Icon, label, value, sub, color, trend, details }: {
   icon: React.ElementType; label: string; value: string; sub?: string; color: string; trend?: string;
@@ -66,6 +68,7 @@ export default function Dashboard() {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [company, setCompany] = useState<CompanyProfile | null>(null);
   const [season, setSeason] = useState<Season | null>(null);
   const [allSeasons, setAllSeasons] = useState<Season[]>([]);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>('');
@@ -89,8 +92,19 @@ export default function Dashboard() {
     kibokoWeightMonth: 0,
     redWeightMonth: 0,
     kaseWeightMonth: 0,
+    kaseValueMonth: 0,
+    kibokoValueToday: 0,
+    redValueToday: 0,
+    kaseValueToday: 0,
+    kibokoWeightSeason: 0,
+    redWeightSeason: 0,
+    kaseWeightSeason: 0,
+    kibokoValueSeason: 0,
+    redValueSeason: 0,
+    kaseValueSeason: 0,
     totalWeightSeason: 0,
     totalValueSeason: 0,
+    totalFarmerDebts: 0,
   });
   const [monthlyTrend, setMonthlyTrend] = useState<any[]>([]);
   const [coffeeTypeBreakdown, setCoffeeTypeBreakdown] = useState<any[]>([]);
@@ -112,15 +126,19 @@ export default function Dashboard() {
 
       const activeSeason = await seasonsService.getActive(adminId);
       
-      const [allFarmers, latestPrice, statsData, recentPurchases, activeAdvances, agentAdvances, perf] = await Promise.all([
+      const [allFarmers, latestPrice, statsData, recentPurchases, activeAdvances, agentAdvances, perf, debtSummaries, companyProfile] = await Promise.all([
         farmersService.getAll(adminId),
         pricesService.getLatest(adminId),
         purchasesService.getDashboardStats(adminId, getEATDateString(), viewMode === 'Personal', activeSeason?.id),
         purchasesService.getAll(adminId, 5, viewMode === 'Personal'), // Limiting to top 5 for dashboard
         advancesService.getAll(adminId),
         agentAdvancesService.getAllForAdmin(adminId),
-        activeSeason ? purchasesService.getAgentPerformanceStats(activeSeason.id, getEATDateString()) : Promise.resolve([])
+        activeSeason ? purchasesService.getAgentPerformanceStats(activeSeason.id, getEATDateString()) : Promise.resolve([]),
+        farmerPaymentsService.getDebtsSummary(adminId),
+        settingsService.getCompanyProfile(adminId)
       ]);
+
+      const totalFarmerDebt = debtSummaries.reduce((sum: number, d: any) => sum + (d.remaining_debt || 0), 0);
 
       // Fetch all seasons for Super Admin selector
       if (profile?.role === 'Super Admin') {
@@ -133,6 +151,7 @@ export default function Dashboard() {
       }
 
       setSeason(activeSeason);
+      setCompany(companyProfile);
       const todayStr = getEATDateString();
       setTodayPrices(latestPrice?.date === todayStr ? latestPrice : null);
       setPurchases(recentPurchases);
@@ -165,8 +184,19 @@ export default function Dashboard() {
         kibokoWeightMonth: statsData.monthly.types.Kiboko,
         redWeightMonth: statsData.monthly.types.Red,
         kaseWeightMonth: statsData.monthly.types.Kase,
-        totalWeightSeason: statsData.seasonal.weight,
-        totalValueSeason: statsData.seasonal.value,
+        kaseValueMonth: statsData.monthly.type_values.Kase,
+        kibokoValueToday: statsData.today.type_values?.Kiboko || 0,
+        redValueToday: statsData.today.type_values?.Red || 0,
+        kaseValueToday: statsData.today.type_values?.Kase || 0,
+        kibokoWeightSeason: statsData.seasonal.types?.Kiboko || 0,
+        redWeightSeason: statsData.seasonal.types?.Red || 0,
+        kaseWeightSeason: statsData.seasonal.types?.Kase || 0,
+        kibokoValueSeason: statsData.seasonal.type_values?.Kiboko || 0,
+        redValueSeason: statsData.seasonal.type_values?.Red || 0,
+        kaseValueSeason: statsData.seasonal.type_values?.Kase || 0,
+        totalWeightSeason: statsData.seasonal.weight || 0,
+        totalValueSeason: statsData.seasonal.value || 0,
+        totalFarmerDebts: totalFarmerDebt,
       });
 
       // Simple Trend placeholder or remove complex trend calculation from initial load
@@ -291,8 +321,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Old toggle location removed */}
-
       {/* Today's Buying Prices Banner */}
       {profile?.role !== 'Super Admin' && (
         todayPrices ? (
@@ -363,12 +391,42 @@ export default function Dashboard() {
         />
         {profile?.role !== 'Super Admin' && (
           <>
-            <StatCard icon={TrendingUp} label="Value Today" value={`${formatUGX(stats.totalValueToday)}`} sub="total payout value" color="#16A34A" trend={stats.valueTrend} />
+            <StatCard 
+              icon={Wallet} 
+              label="Current Capital" 
+              value={formatCurrency(company?.capital || 0)} 
+              sub="Available operating funds" 
+              color="#14532D" 
+              trend={(company?.capital || 0) > 0 ? "Active" : "Low"}
+            />
+            <StatCard 
+              icon={TrendingUp} 
+              label="Value Today" 
+              value="" 
+              sub="total payout value" 
+              color="#16A34A" 
+              trend={stats.valueTrend} 
+              details={[
+                { label: "Kiboko", value: formatUGX(stats.kibokoValueToday), color: "#14532D" },
+                { label: "Red", value: formatUGX(stats.redValueToday), color: "#DC2626" },
+                { label: "Kase", value: formatUGX(stats.kaseValueToday), color: "#A855F7" }
+              ]}
+            />
             {viewMode === 'Personal' ? (
               <StatCard icon={CreditCard} label="Outstanding Farmer Advances" value={`${formatUGX(stats.totalAdvancesOutstanding)}`} sub={`across ${advances.length} farmers`} color="#F59E0B" />
             ) : (
               <StatCard icon={Wallet} label="Outstanding Agent Capital" value={`${formatUGX(stats.totalAgentCapitalOutstanding)}`} sub="issued to field agents" color="#14532D" />
             )}
+            <StatCard 
+              icon={CreditCard} 
+              label="Total Farmer Debts" 
+              value={`${formatUGX(stats.totalFarmerDebts)}`} 
+              sub="to be paid later" 
+              color="#DC2626" 
+              details={[
+                { label: "Action", value: "Settle Debts", color: "#DC2626" }
+              ]}
+            />
           </>
         )}
       </div>
@@ -388,7 +446,19 @@ export default function Dashboard() {
           ]}
         />
         {profile?.role !== 'Super Admin' && (
-          <StatCard icon={TrendingUp} label="Monthly Value" value={`${formatUGX(stats.monthlyValue)}`} sub={new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })} color="#16A34A" trend={stats.monthlyValueTrend} />
+          <StatCard 
+            icon={TrendingUp} 
+            label="Monthly Value" 
+            value="" 
+            sub={new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })} 
+            color="#16A34A" 
+            trend={stats.monthlyValueTrend}
+            details={[
+              { label: "Kiboko", value: formatUGX(stats.kibokoValueMonth), color: "#14532D" },
+              { label: "Red", value: formatUGX(stats.redValueMonth), color: "#DC2626" },
+              { label: "Kase", value: formatUGX(stats.kaseValueMonth), color: "#A855F7" }
+            ]}
+          />
         )}
       </div>
 
@@ -397,16 +467,26 @@ export default function Dashboard() {
         <StatCard 
           icon={ShoppingCart} 
           label="Seasonal Total Weight" 
-          value={`${stats.totalWeightSeason.toLocaleString()} kg`} 
-          sub={`total weight for ${season?.name || "current season"}`}
+          value="" 
+          sub={`total for ${season?.name || "current season"}`}
           color="#14532D" 
+          details={[
+            { label: "Kiboko", value: `${stats.kibokoWeightSeason.toLocaleString()} kg`, color: "#14532D" },
+            { label: "Red", value: `${stats.redWeightSeason.toLocaleString()} kg`, color: "#DC2626" },
+            { label: "Kase", value: `${stats.kaseWeightSeason.toLocaleString()} kg`, color: "#A855F7" }
+          ]}
         />
         <StatCard 
           icon={CreditCard} 
           label="Seasonal Total Value" 
-          value={`${formatUGX(stats.totalValueSeason)}`} 
-          sub={`total payout for ${season?.name || "current season"}`}
+          value="" 
+          sub={`total for ${season?.name || "current season"}`}
           color="#16A34A" 
+          details={[
+            { label: "Kiboko", value: formatUGX(stats.kibokoValueSeason), color: "#14532D" },
+            { label: "Red", value: formatUGX(stats.redValueSeason), color: "#DC2626" },
+            { label: "Kase", value: formatUGX(stats.kaseValueSeason), color: "#A855F7" }
+          ]}
         />
       </div>
 

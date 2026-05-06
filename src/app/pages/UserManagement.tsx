@@ -260,7 +260,7 @@ export default function UserManagement() {
       return;
     }
 
-    const finalEmail = inviteEmail.trim() || `agent_${normalizedPhone}@coffeetrack.local`;
+    const finalEmail = inviteEmail.trim() || `agent_${normalizedPhone}@coffexx.local`;
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -717,7 +717,7 @@ export default function UserManagement() {
                 {generatedLink && (
                   <div className="w-full space-y-3">
                     <a
-                      href={`https://wa.me/${invitePhone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${inviteName},\n\nYou've been invited to CoffeeTrack as a ${inviteRole}.\n\nClick here to securely set up your account: ${generatedLink}`)}`}
+                      href={`https://wa.me/${invitePhone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi ${inviteName},\n\nYou've been invited to coffexx as a ${inviteRole}.\n\nClick here to securely set up your account: ${generatedLink}`)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-[#25D366] text-white rounded-xl font-bold hover:bg-[#20b858] transition-all shadow-sm"

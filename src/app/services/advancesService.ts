@@ -38,7 +38,7 @@ export const advancesService = {
     return data as Advance[];
   },
 
-  async create(advance: Omit<Advance, 'remaining' | 'status' | 'created_at'>) {
+  async create(advance: Omit<Advance, 'id' | 'remaining' | 'status' | 'created_at'>) {
     const { data, error } = await supabase
       .from('advances')
       .insert(advance)
@@ -76,5 +76,13 @@ export const advancesService = {
     const { data, error } = await query;
     if (error) throw error;
     return data;
+  },
+
+  async delete(id: string) {
+    const { error } = await supabase
+      .from('advances')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   }
 };
