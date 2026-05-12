@@ -9,6 +9,10 @@ import { SharePricesModal } from "../components/SharePricesModal";
 import { pricesService, BuyingPrice } from "../services/pricesService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { getEATDateString } from "../utils/dateUtils";
+import { usePriceHistory } from "../hooks/queries/usePriceHistory";
+import { useLatestPrices } from "../hooks/queries/useLatestPrices";
+import { useSync } from "../contexts/SyncContext";
+import { useQueryClient } from "@tanstack/react-query";
 
 function formatUGX(v: number) {
   return `UGX ${Math.round(v).toLocaleString()}`;
@@ -54,12 +58,16 @@ function TablePriceChange({ current, previous }: { current: number; previous: nu
 
 export default function PriceManagement() {
   const { profile } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const { isOnline, addToSyncQueue } = useSync();
+  const queryClient = useQueryClient();
+  const adminId = getEffectiveAdminId(profile);
+
+  const { data: history, isLoading: historyLoading } = usePriceHistory(adminId);
+  const { data: latestPrice, isLoading: latestLoading } = useLatestPrices(adminId);
+
   const [prices, setPrices] = useState<BuyingPrice[]>([]);
   const [todayEntry, setTodayEntry] = useState<BuyingPrice | null>(null);
   const [yesterdayEntry, setYesterdayEntry] = useState<BuyingPrice | null>(null);
-  const [selectedDate, setSelectedDate] = useState("");
   const [today] = useState(() => getEATDateString());
   const [toast, setToast] = useState(false);
 
@@ -70,6 +78,7 @@ export default function PriceManagement() {
   const [kaseInput, setKaseInput] = useState("");
   const [notesInput, setNotesInput] = useState("");
   const [saved, setSaved] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(true);
@@ -99,49 +108,32 @@ export default function PriceManagement() {
   }, [kibokoInput, redInput, kaseInput, notesInput]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const adminId = getEffectiveAdminId(profile);
-        if (!adminId) return;
+    if (history && history.length > 0) {
+      setPrices(history);
+      const yesterdayStr = getEATDateString(-1);
+      const todayPrice = history.find(p => p.date === today);
+      const yesterdayPrice = history.find(p => p.date === yesterdayStr);
 
-        const [history, latest] = await Promise.all([
-          pricesService.getHistory(30, adminId),
-          pricesService.getLatest(adminId)
-        ]);
-        
-        setPrices(history);
-        
-        const yesterdayStr = getEATDateString(-1);
-        
-        const latestDate = latest?.date;
-        const todayPrice = history.find(p => p.date === today);
-        const yesterdayPrice = history.find(p => p.date === yesterdayStr);
+      setTodayEntry(todayPrice || null);
+      setYesterdayEntry(yesterdayPrice || null);
 
-        setTodayEntry(todayPrice || null);
-        setYesterdayEntry(yesterdayPrice || null);
-
-        if (todayPrice) {
-          setKibokoInput(String(todayPrice.kiboko_price));
-          setRedInput(String(todayPrice.red_price || 0));
-          setKaseInput(String(todayPrice.kase_price || 0));
-          setNotesInput(todayPrice.notes || "");
-        } else {
-          setEditing(true);
-          if (yesterdayPrice) {
-            setKibokoInput(String(yesterdayPrice.kiboko_price));
-            setRedInput(String(yesterdayPrice.red_price || 0));
-            setKaseInput(String(yesterdayPrice.kase_price || 0));
-          }
+      if (todayPrice && !editing) {
+        setKibokoInput(String(todayPrice.kiboko_price));
+        setRedInput(String(todayPrice.red_price || 0));
+        setKaseInput(String(todayPrice.kase_price || 0));
+        setNotesInput(todayPrice.notes || "");
+      } else if (!todayPrice && !editing) {
+        // Initialize with yesterday's prices if no entry for today
+        if (yesterdayPrice) {
+          setKibokoInput(String(yesterdayPrice.kiboko_price));
+          setRedInput(String(yesterdayPrice.red_price || 0));
+          setKaseInput(String(yesterdayPrice.kase_price || 0));
         }
-      } catch (err) {
-        console.error("Error fetching prices:", err);
-      } finally {
-        setLoading(false);
       }
     }
-    fetchData();
-  }, [today]);
+  }, [history, today]);
+
+  const loading = (historyLoading || latestLoading) && prices.length === 0;
 
   const handleEdit = () => {
     setEditing(true);
@@ -180,7 +172,7 @@ export default function PriceManagement() {
     setSaveError(null);
     try {
       setSubmitting(true);
-      await pricesService.setPrices({
+      const priceData = {
         date: today,
         kiboko_price: k_b,
         red_price: red,
@@ -188,17 +180,26 @@ export default function PriceManagement() {
         notes: notesInput,
         set_by: profile?.id || null,
         admin_id: adminId,
-      });
+      };
 
-      setSaved(true);
-      setEditing(false);
-      localStorage.removeItem(DRAFT_KEY);
+      if (!isOnline) {
+        await addToSyncQueue('CREATE_PRICE', priceData);
+        const optimisticEntry = { ...priceData, id: 'temp-' + Date.now(), set_at: new Date().toISOString(), profiles: { full_name: profile?.full_name || 'You' } } as BuyingPrice;
+        setTodayEntry(optimisticEntry);
+        setPrices([optimisticEntry, ...prices.filter(p => p.date !== today)]);
+        setSaved(true);
+        setEditing(false);
+      } else {
+        await pricesService.setPrices(priceData);
+        setSaved(true);
+        setEditing(false);
+        localStorage.removeItem(DRAFT_KEY);
+        // Invalidate queries to refresh data
+        queryClient.invalidateQueries({ queryKey: ['price-history', adminId] });
+        queryClient.invalidateQueries({ queryKey: ['latest-prices', adminId] });
+      }
+
       setTimeout(() => setSaved(false), 3000);
-      
-      // Refresh history
-      const history = await pricesService.getHistory(30, adminId!);
-      setPrices(history);
-      setTodayEntry(history.find(p => p.date === today) || null);
     } catch (err: any) {
       console.error("Error saving prices:", err);
       setSaveError(err?.message || "Failed to save prices. Please try again.");

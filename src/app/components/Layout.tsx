@@ -8,6 +8,7 @@ import {
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { seasonsService, Season } from "../services/seasonsService";
 import { useSync } from "../contexts/SyncContext";
+import { BetaDisclaimer } from "./BetaDisclaimer";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -338,6 +339,7 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
           {children}
         </main>
       </div>
+      <BetaDisclaimer />
     </div>
   );
 }

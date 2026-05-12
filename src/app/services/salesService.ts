@@ -94,7 +94,8 @@ export const salesService = {
     // 1. Get total purchases weight since the last sale
     let pQuery = supabase
       .from('purchases')
-      .select('payable_weight')
+      .select('payable_weight, farmers!inner(deleted_at)')
+      .is('farmers.deleted_at', null)
       .gt('created_at', lastSaleTime);
     
     if (adminId !== 'SUPER_ADMIN') {

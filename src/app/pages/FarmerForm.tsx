@@ -4,6 +4,9 @@ import { Layout } from "../components/Layout";
 import { User, Phone, MapPin, Save, X, Loader2, Check, AlertCircle } from "lucide-react";
 import { farmersService } from "../services/farmersService";
 import { supabase } from "../lib/supabase";
+import { useSync } from "../contexts/SyncContext";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 
 function SuccessToast({ visible }: { visible: boolean }) {
   if (!visible) return null;
@@ -19,6 +22,9 @@ function SuccessToast({ visible }: { visible: boolean }) {
 export default function FarmerForm() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const { isOnline, addToSyncQueue } = useSync();
+  const { profile } = useAuth();
+  const queryClient = useQueryClient();
   const [toast, setToast] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   
@@ -68,10 +74,21 @@ export default function FarmerForm() {
       setLoading(true);
       setErrors({});
       
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
+      const adminId = getEffectiveAdminId(profile);
+      if (!adminId) throw new Error("Not authenticated");
 
-      await farmersService.create({ ...formData, admin_id: user.id });
+      const farmerData = { 
+        ...formData, 
+        admin_id: adminId === 'SUPER_ADMIN' ? profile!.id : adminId 
+      };
+
+      if (!isOnline) {
+        await addToSyncQueue('CREATE_FARMER', farmerData);
+      } else {
+        await farmersService.create(farmerData);
+        // Invalidate queries to refresh the list immediately
+        queryClient.invalidateQueries({ queryKey: ['farmers', adminId] });
+      }
       
       localStorage.removeItem(DRAFT_KEY);
       setToast(true);

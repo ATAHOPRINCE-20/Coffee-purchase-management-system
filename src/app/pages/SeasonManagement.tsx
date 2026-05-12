@@ -5,13 +5,22 @@ import { seasonsService, Season } from "../services/seasonsService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { getEATDateString } from "../utils/dateUtils";
 import { supabase } from "../lib/supabase";
+import { useSeasons } from "../hooks/queries/useSeasons";
+import { useSync } from "../contexts/SyncContext";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function SeasonManagement() {
   const { profile } = useAuth();
+  const { isOnline, addToSyncQueue } = useSync();
+  const queryClient = useQueryClient();
+  const adminId = getEffectiveAdminId(profile);
+
+  const { data: seasonsData = [], isLoading: seasonsLoading } = useSeasons(adminId);
+
   const [seasons, setSeasons] = useState<Season[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
   
   // New Season Form State
   const [showForm, setShowForm] = useState(false);
@@ -43,25 +52,11 @@ export default function SeasonManagement() {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   }, [newName, startDate, endDate]);
 
-  const fetchSeasons = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
-      
-      const data = await seasonsService.getAll(adminId);
-      setSeasons(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load seasons");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchSeasons();
-  }, [profile]);
+    if (seasonsData) setSeasons(seasonsData);
+  }, [seasonsData]);
+
+  const loading = seasonsLoading && seasons.length === 0;
 
   const handleCreate = async () => {
     if (!newName || !startDate || !endDate) {
@@ -75,23 +70,31 @@ export default function SeasonManagement() {
       const adminId = getEffectiveAdminId(profile);
       if (!adminId) return;
 
-      const { error: insertError } = await supabase
-        .from('seasons')
-        .insert({
-          name: newName,
-          start_date: startDate,
-          end_date: endDate,
-          is_active: seasons.length === 0, // auto-activate if it's the first one
-          admin_id: adminId
-        });
+      const seasonData = {
+        name: newName,
+        start_date: startDate,
+        end_date: endDate,
+        is_active: seasons.length === 0, // auto-activate if it's the first one
+        admin_id: adminId
+      };
 
-      if (insertError) throw insertError;
+      if (!isOnline) {
+        await addToSyncQueue('CREATE_SEASON', seasonData);
+        // Optimistic update
+        const optimisticSeason = { ...seasonData, id: 'temp-' + Date.now() } as Season;
+        setSeasons(prev => [...prev, optimisticSeason]);
+      } else {
+        const { error: insertError } = await supabase
+          .from('seasons')
+          .insert(seasonData);
+        if (insertError) throw insertError;
+        queryClient.invalidateQueries({ queryKey: ['seasons', adminId] });
+      }
 
       setNewName("");
       setEndDate("");
       setShowForm(false);
       localStorage.removeItem(DRAFT_KEY);
-      await fetchSeasons();
     } catch (err: any) {
       setError(err.message || "Failed to create season");
     } finally {
@@ -106,20 +109,27 @@ export default function SeasonManagement() {
       const adminId = getEffectiveAdminId(profile);
       if (!adminId) return;
 
-      // 1. Deactivate all seasons for this admin
-      await supabase
-        .from('seasons')
-        .update({ is_active: false })
-        .eq('admin_id', adminId);
+      if (!isOnline) {
+        // This is complex because it involves deactivating others.
+        // For simplicity, we just queue the activation.
+        await addToSyncQueue('UPDATE_SEASON', { id, is_active: true });
+        setSeasons(prev => prev.map(s => ({ ...s, is_active: s.id === id })));
+      } else {
+        // 1. Deactivate all seasons for this admin
+        await supabase
+          .from('seasons')
+          .update({ is_active: false })
+          .eq('admin_id', adminId);
 
-      // 2. Activate the selected one
-      await supabase
-        .from('seasons')
-        .update({ is_active: true })
-        .eq('id', id)
-        .eq('admin_id', adminId);
+        // 2. Activate the selected one
+        await supabase
+          .from('seasons')
+          .update({ is_active: true })
+          .eq('id', id)
+          .eq('admin_id', adminId);
 
-      await fetchSeasons();
+        queryClient.invalidateQueries({ queryKey: ['seasons', adminId] });
+      }
     } catch (err: any) {
       setError(err.message || "Failed to activate season");
     } finally {

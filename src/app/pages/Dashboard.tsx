@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, BarChart, Bar
@@ -6,22 +6,27 @@ import {
 import { Layout } from "../components/Layout";
 import { 
   TrendingUp, ShoppingCart, Users, CreditCard, ArrowUpRight, 
-  Plus, Eye, AlertCircle, Loader2, Tag, ChevronDown, MapPin, Wallet, Share2
+  Plus, AlertCircle, Loader2, Tag, MapPin, Wallet, Share2
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { ErrorState } from "../components/ErrorState";
 import { purchasesService } from "../services/purchasesService";
-import { farmersService } from "../services/farmersService";
-import { advancesService } from "../services/advancesService";
-import { seasonsService, Season } from "../services/seasonsService";
-import { pricesService, BuyingPrice } from "../services/pricesService";
-import { agentAdvancesService } from "../services/agentAdvancesService";
-import { farmerPaymentsService } from "../services/farmerPaymentsService";
-import { settingsService, CompanyProfile } from "../services/settingsService";
+import { Season } from "../services/seasonsService";
+import { BuyingPrice } from "../services/pricesService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { getEATDateString, getEATGreeting } from "../utils/dateUtils";
 import { formatCurrency } from "../utils/formatters";
 import { SharePricesModal } from "../components/SharePricesModal";
+import { useAdvances } from "../hooks/queries/useAdvances";
+import { useFarmers } from "../hooks/queries/useFarmers";
+import { useSeasons } from "../hooks/queries/useSeasons";
+import { usePurchases } from "../hooks/queries/usePurchases";
+import { useLatestPrices } from "../hooks/queries/useLatestPrices";
+import { useDashboardStats } from "../hooks/queries/useDashboardStats";
+import { useCompanyProfile } from "../hooks/queries/useCompanyProfile";
+import { useDebtSummary } from "../hooks/queries/useDebtSummary";
+import { useAgentAdvances } from "../hooks/queries/useAgentAdvances";
+import { useAgentPerformance } from "../hooks/queries/useAgentPerformance";
 
 const formatUGX = (v: number) => `UGX ${(v || 0).toLocaleString()}`;
 
@@ -66,182 +71,166 @@ const COLORS = ["#14532D", "#DC2626", "#A855F7"];
 export default function Dashboard() {
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [company, setCompany] = useState<CompanyProfile | null>(null);
-  const [season, setSeason] = useState<Season | null>(null);
-  const [allSeasons, setAllSeasons] = useState<Season[]>([]);
+  const adminId = getEffectiveAdminId(profile);
+
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'Personal' | 'Team'>(profile?.role === 'Field Agent' ? 'Personal' : 'Personal');
-  const [stats, setStats] = useState<any>({
-    totalPurchasesToday: 0,
-    totalWeightToday: 0,
-    totalValueToday: 0,
-    activeFarmers: 0,
-    totalAdvancesOutstanding: 0,
-    totalAgentCapitalOutstanding: 0,
-    monthlyPurchases: 0,
-    monthlyValue: 0,
-    purchasesTrend: null,
-    weightTrend: null,
-    valueTrend: null,
-    monthlyValueTrend: null,
-    kibokoWeightToday: 0,
-    redWeightToday: 0,
-    kaseWeightToday: 0,
-    kibokoWeightMonth: 0,
-    redWeightMonth: 0,
-    kaseWeightMonth: 0,
-    kaseValueMonth: 0,
-    kibokoValueToday: 0,
-    redValueToday: 0,
-    kaseValueToday: 0,
-    kibokoWeightSeason: 0,
-    redWeightSeason: 0,
-    kaseWeightSeason: 0,
-    kibokoValueSeason: 0,
-    redValueSeason: 0,
-    kaseValueSeason: 0,
-    totalWeightSeason: 0,
-    totalValueSeason: 0,
-    totalFarmerDebts: 0,
-  });
-  const [monthlyTrend, setMonthlyTrend] = useState<any[]>([]);
-  const [coffeeTypeBreakdown, setCoffeeTypeBreakdown] = useState<any[]>([]);
-  const [topFarmers, setTopFarmers] = useState<any[]>([]);
-  const [farmerRegions, setFarmerRegions] = useState<{region: string; count: number}[]>([]);
-  const [purchases, setPurchases] = useState<any[]>([]);
-  const [advances, setAdvances] = useState<any[]>([]);
-  const [todayPrices, setTodayPrices] = useState<BuyingPrice | null>(null);
-  const [agentPerformance, setAgentPerformance] = useState<any[]>([]);
+  const [viewMode, setViewMode] = useState<'Personal' | 'Team'>('Personal');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
+  // All data fetched via hooks with built-in caching and real-time updates
+  const { data: farmers = [] } = useFarmers(adminId);
+  const { data: seasons = [] } = useSeasons(adminId);
+  const { data: advances = [] } = useAdvances(adminId);
+  const { data: agentAdvances = [] } = useAgentAdvances(adminId);
+  const { data: recentPurchases = [] } = usePurchases(adminId, 5, viewMode === 'Personal');
+  const { data: latestPrice = null } = useLatestPrices(adminId);
+  const { data: company = null } = useCompanyProfile(adminId);
+  const { data: debtSummaries = [] } = useDebtSummary(adminId);
 
-      const activeSeason = await seasonsService.getActive(adminId);
-      
-      const [allFarmers, latestPrice, statsData, recentPurchases, activeAdvances, agentAdvances, perf, debtSummaries, companyProfile] = await Promise.all([
-        farmersService.getAll(adminId),
-        pricesService.getLatest(adminId),
-        purchasesService.getDashboardStats(adminId, getEATDateString(), viewMode === 'Personal', activeSeason?.id),
-        purchasesService.getAll(adminId, 5, viewMode === 'Personal'), // Limiting to top 5 for dashboard
-        advancesService.getAll(adminId),
-        agentAdvancesService.getAllForAdmin(adminId),
-        activeSeason ? purchasesService.getAgentPerformanceStats(activeSeason.id, getEATDateString()) : Promise.resolve([]),
-        farmerPaymentsService.getDebtsSummary(adminId),
-        settingsService.getCompanyProfile(adminId)
-      ]);
+  // Compute active season from cached seasons
+  const activeSeason = useMemo(() => seasons.find(s => s.is_active) || null, [seasons]);
+  const currentSeasonId = selectedSeasonId || activeSeason?.id;
 
-      const totalFarmerDebt = debtSummaries.reduce((sum: number, d: any) => sum + (d.remaining_debt || 0), 0);
+  const { data: statsData, isLoading: statsLoading, error: statsError, refetch: refetchStats } = useDashboardStats(
+    adminId, viewMode === 'Personal', currentSeasonId
+  );
 
-      // Fetch all seasons for Super Admin selector
-      if (profile?.role === 'Super Admin') {
-        const seasons = await seasonsService.getAll(adminId);
-        setAllSeasons(seasons);
-        // Use selected season or default to active
-        if (!selectedSeasonId && activeSeason) {
-          setSelectedSeasonId(activeSeason.id);
-        }
-      }
+  const { data: agentPerformance = [] } = useAgentPerformance(
+    activeSeason?.id
+  );
 
-      setSeason(activeSeason);
-      setCompany(companyProfile);
-      const todayStr = getEATDateString();
-      setTodayPrices(latestPrice?.date === todayStr ? latestPrice : null);
-      setPurchases(recentPurchases);
-      setAdvances(activeAdvances.filter((a: any) => a.status === 'Active'));
-      setAgentPerformance(perf); 
+  const [topFarmers, setTopFarmers] = useState<any[]>([]);
+  const allSeasons = seasons;
 
-      // Calculate farmer distribution by region
-      const regionMap: Record<string, number> = {};
-      allFarmers.forEach((f: any) => {
-        const region = f.region || f.village || 'Unknown';
-        regionMap[region] = (regionMap[region] || 0) + 1;
-      });
-      const regionData = Object.entries(regionMap)
-        .map(([region, count]) => ({ region, count }))
-        .sort((a, b) => b.count - a.count);
-      setFarmerRegions(regionData);
+  const loading = statsLoading && !statsData;
+  const error = (statsError as any)?.message || null;
 
-      setStats({
-        totalPurchasesToday: statsData.today.count,
-        totalWeightToday: statsData.today.weight,
-        totalValueToday: statsData.today.value,
-        activeFarmers: allFarmers.length,
-        totalAdvancesOutstanding: activeAdvances.filter(a => a.status === 'Active').reduce((s, a) => s + (a.remaining || 0), 0),
-        totalAgentCapitalOutstanding: (agentAdvances || []).filter((a: any) => a.status === 'Active').reduce((s: number, a: any) => s + (a.remaining_amount || 0), 0),
-        monthlyPurchases: statsData.monthly.weight,
-        monthlyValue: statsData.monthly.value,
-        kibokoWeightToday: statsData.today.types.Kiboko,
-        redWeightToday: statsData.today.types.Red,
-        kaseWeightToday: statsData.today.types.Kase,
-        kibokoWeightMonth: statsData.monthly.types.Kiboko,
-        redWeightMonth: statsData.monthly.types.Red,
-        kaseWeightMonth: statsData.monthly.types.Kase,
-        kaseValueMonth: statsData.monthly.type_values.Kase,
-        kibokoValueToday: statsData.today.type_values?.Kiboko || 0,
-        redValueToday: statsData.today.type_values?.Red || 0,
-        kaseValueToday: statsData.today.type_values?.Kase || 0,
-        kibokoWeightSeason: statsData.seasonal.types?.Kiboko || 0,
-        redWeightSeason: statsData.seasonal.types?.Red || 0,
-        kaseWeightSeason: statsData.seasonal.types?.Kase || 0,
-        kibokoValueSeason: statsData.seasonal.type_values?.Kiboko || 0,
-        redValueSeason: statsData.seasonal.type_values?.Red || 0,
-        kaseValueSeason: statsData.seasonal.type_values?.Kase || 0,
-        totalWeightSeason: statsData.seasonal.weight || 0,
-        totalValueSeason: statsData.seasonal.value || 0,
-        totalFarmerDebts: totalFarmerDebt,
-      });
+  // Compute derived state from hook data
+  const todayStr = getEATDateString();
+  const todayPrices = latestPrice?.date === todayStr ? latestPrice : null;
+  const activeAdvances = advances.filter((a: any) => a.status === 'Active');
+  const totalFarmerDebt = debtSummaries.reduce((sum: number, d: any) => sum + (d.remaining_debt || 0), 0);
 
-      // Simple Trend placeholder or remove complex trend calculation from initial load
-      // For now, setting trends to null or keeping as is if data available
-      
-      // Calculate Coffee Type Breakdown (Today as preview)
-      const breakdown = [
-        { type: "Kiboko", weight: statsData.today.types.Kiboko },
-        { type: "Red", weight: statsData.today.types.Red },
-        { type: "Kase", weight: statsData.today.types.Kase },
-      ].filter(b => b.weight > 0);
-      const totalT = breakdown.reduce((s, b) => s + b.weight, 0);
-      setCoffeeTypeBreakdown(breakdown.map(b => ({ ...b, percentage: Math.round((b.weight / totalT) * 100) })));
+  const season = activeSeason;
+  const purchases = recentPurchases;
 
-      // Calculate Top Farmers based on recent purchases weighting
-      // Ideally this is done in the backend, but we can do a simplified version here for immediate display
-      // We'll aggregate weights per farmer from recentPurchases and allFarmers logic if possible.
-      // Assuming statsData doesn't have top farmers yet, we'll fetch top farmers from purchasesService.
+  // Build stats object from statsData
+  const stats = useMemo(() => {
+    if (!statsData) return {
+      totalPurchasesToday: 0, totalWeightToday: 0, totalValueToday: 0,
+      activeFarmers: 0, totalAdvancesOutstanding: 0, totalAgentCapitalOutstanding: 0,
+      monthlyPurchases: 0, monthlyValue: 0, 
+      kibokoWeightToday: 0, redWeightToday: 0, kaseWeightToday: 0, 
+      kibokoWeightMonth: 0, redWeightMonth: 0, kaseWeightMonth: 0,
+      kaseValueMonth: 0, kibokoValueToday: 0, redValueToday: 0, kaseValueToday: 0,
+      kibokoWeightSeason: 0, redWeightSeason: 0, kaseWeightSeason: 0,
+      kibokoValueSeason: 0, redValueSeason: 0, kaseValueSeason: 0,
+      totalWeightSeason: 0, totalValueSeason: 0, totalFarmerDebts: 0,
+      kibokoValueMonth: 0, redValueMonth: 0,
+      purchasesTrend: "0%", weightTrend: "0%", valueTrend: "0%",
+      monthlyValueTrend: "0%", monthlyWeightTrend: "0%", valueTrendToday: "0%"
+    };
+    return {
+      totalPurchasesToday: statsData.today.count,
+      totalWeightToday: statsData.today.weight,
+      totalValueToday: statsData.today.value,
+      activeFarmers: farmers.length,
+      totalAdvancesOutstanding: activeAdvances.reduce((s: number, a: any) => s + (a.remaining || 0), 0),
+      totalAgentCapitalOutstanding: (agentAdvances || []).filter((a: any) => a.status === 'Active').reduce((s: number, a: any) => s + (a.remaining_amount || 0), 0),
+      monthlyPurchases: statsData.monthly.weight,
+      monthlyValue: statsData.monthly.value,
+      kibokoWeightToday: statsData.today.types.Kiboko,
+      redWeightToday: statsData.today.types.Red,
+      kaseWeightToday: statsData.today.types.Kase,
+      kibokoWeightMonth: statsData.monthly.types.Kiboko,
+      redWeightMonth: statsData.monthly.types.Red,
+      kaseWeightMonth: statsData.monthly.types.Kase,
+      kaseValueMonth: statsData.monthly.type_values?.Kase || 0,
+      kibokoValueMonth: statsData.monthly.type_values?.Kiboko || 0,
+      redValueMonth: statsData.monthly.type_values?.Red || 0,
+      kibokoValueToday: statsData.today.type_values?.Kiboko || 0,
+      redValueToday: statsData.today.type_values?.Red || 0,
+      kaseValueToday: statsData.today.type_values?.Kase || 0,
+      kibokoWeightSeason: statsData.seasonal.types?.Kiboko || 0,
+      redWeightSeason: statsData.seasonal.types?.Red || 0,
+      kaseWeightSeason: statsData.seasonal.types?.Kase || 0,
+      kibokoValueSeason: statsData.seasonal.type_values?.Kiboko || 0,
+      redValueSeason: statsData.seasonal.type_values?.Red || 0,
+      kaseValueSeason: statsData.seasonal.type_values?.Kase || 0,
+      totalWeightSeason: statsData.seasonal.weight || 0,
+      totalValueSeason: statsData.seasonal.value || 0,
+      totalFarmerDebts: totalFarmerDebt,
+      purchasesTrend: "+0%",
+      weightTrend: "+0%",
+      valueTrend: "+0%",
+      monthlyValueTrend: "+0%",
+      monthlyWeightTrend: "+0%",
+      valueTrendToday: "+0%"
+    };
+  }, [statsData, farmers, activeAdvances, agentAdvances, totalFarmerDebt]);
 
-      try {
-        const topFarmersData = await purchasesService.getTopFarmers(adminId, 5);
-        setTopFarmers(topFarmersData);
-      } catch (err) {
-        console.error("Failed to fetch top farmers", err);
-        setTopFarmers([]);
-      }
+  const coffeeTypeBreakdown = useMemo(() => {
+    if (!statsData) return [];
+    const breakdown = [
+      { type: "Kiboko", weight: statsData.today.types.Kiboko },
+      { type: "Red", weight: statsData.today.types.Red },
+      { type: "Kase", weight: statsData.today.types.Kase },
+    ].filter(b => b.weight > 0);
+    const totalT = breakdown.reduce((s, b) => s + b.weight, 0);
+    return breakdown.map(b => ({ ...b, percentage: Math.round((b.weight / totalT) * 100) }));
+  }, [statsData]);
 
-    } catch (err: any) {
-      console.error("Error fetching dashboard data:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  const farmerRegions = useMemo(() => {
+    const regionMap: Record<string, number> = {};
+    farmers.forEach((f: any) => {
+      const region = f.region || f.village || 'Unknown';
+      regionMap[region] = (regionMap[region] || 0) + 1;
+    });
+    return Object.entries(regionMap)
+      .map(([region, count]) => ({ region, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [farmers]);
+
+  const monthlyTrend = useMemo(() => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthData: Record<string, number> = {};
+    
+    // Default last 6 months with 0
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthData[months[d.getMonth()]] = 0;
     }
-  };
 
+    recentPurchases.forEach((p: any) => {
+      const d = new Date(p.date);
+      const m = months[d.getMonth()];
+      if (monthData[m] !== undefined) {
+        monthData[m] += (p.payable_weight || 0);
+      }
+    });
+
+    return Object.entries(monthData).map(([month, weight]) => ({ month, weight }));
+  }, [recentPurchases]);
+
+  // Fetch top farmers once on mount (not real-time critical)
   useEffect(() => {
-    fetchDashboardData();
-  }, [viewMode]);
+    if (!adminId) return;
+    purchasesService.getTopFarmers(adminId, 5)
+      .then(setTopFarmers)
+      .catch(() => setTopFarmers([]));
+  }, [adminId]);
 
-  // Re-fetch when season selection changes (Super Admin)
+  // Set default season for Super Admin selector
+  useEffect(() => {
+    if (!selectedSeasonId && activeSeason) {
+      setSelectedSeasonId(activeSeason.id);
+    }
+  }, [activeSeason, selectedSeasonId]);
+
   const handleSeasonChange = (seasonId: string) => {
     setSelectedSeasonId(seasonId);
-    const picked = allSeasons.find(s => s.id === seasonId);
-    if (picked) setSeason(picked);
-    // For now the stats refetch is handled by useEffect below
   };
 
   if (loading) {
@@ -261,7 +250,7 @@ export default function Dashboard() {
         <ErrorState 
           title="Couldn't Load Dashboard" 
           message={error} 
-          onRetry={fetchDashboardData} 
+          onRetry={() => refetchStats()} 
         />
       </Layout>
     );

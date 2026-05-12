@@ -35,7 +35,8 @@ export const reportService = {
     // RLS handles visibility (Pyramid Hierarchy)
     const pQuery = supabase
       .from('purchases')
-      .select('*, farmers(name)')
+      .select('*, farmers!inner(name, deleted_at)')
+      .is('farmers.deleted_at', null)
       .gt('created_at', startTime)
       .lte('created_at', endTime);
       

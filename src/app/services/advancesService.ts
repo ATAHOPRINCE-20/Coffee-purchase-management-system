@@ -18,7 +18,8 @@ export const advancesService = {
   async getAll(adminId: string) {
     let query = supabase
       .from('advances')
-      .select('*, farmers(name), seasons(name), admin:admin_id(full_name)');
+      .select('*, farmers!inner(id, name, village, phone, deleted_at), seasons(name), admin:admin_id(full_name)')
+      .is('farmers.deleted_at', null);
       
     // RLS handles visibility
     
@@ -30,7 +31,7 @@ export const advancesService = {
   async getByFarmerId(farmerId: string) {
     const { data, error } = await supabase
       .from('advances')
-      .select('*')
+      .select('*, farmers(id, name, village, phone, deleted_at)')
       .eq('farmer_id', farmerId)
       .order('issue_date', { ascending: false });
     
@@ -64,7 +65,8 @@ export const advancesService = {
   async getDashboardStats(adminId: string, options: { onlyDirect?: boolean } = {}) {
     let query = supabase
       .from('advances')
-      .select('*, farmers(name), seasons(name)');
+      .select('*, farmers!inner(name, deleted_at), seasons(name)')
+      .is('farmers.deleted_at', null);
 
     if (options.onlyDirect) {
       const { data: { user } } = await supabase.auth.getUser();

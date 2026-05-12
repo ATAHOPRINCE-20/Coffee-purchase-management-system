@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router";
 import { Layout } from "../components/Layout";
 import { Search, Plus, ChevronDown, Filter, Eye, Check, X, CreditCard, TrendingUp, AlertCircle, Users, Loader2, Pencil, Info } from "lucide-react";
 import { farmersService, Farmer } from "../services/farmersService";
@@ -7,6 +8,10 @@ import { seasonsService, Season } from "../services/seasonsService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { getEATDateString } from "../utils/dateUtils";
 import { ErrorState } from "../components/ErrorState";
+import { useAdvances } from "../hooks/queries/useAdvances";
+import { useFarmers } from "../hooks/queries/useFarmers";
+import { useSeasons } from "../hooks/queries/useSeasons";
+import { queryClient } from "../lib/QueryProvider";
 
 function formatUGX(v: number) { return `UGX ${Math.round(v).toLocaleString()}`; }
 
@@ -40,24 +45,26 @@ function StatCard({ icon: Icon, label, value, sub, color, bgColor }: {
 }
 
 export default function AdvanceManagement() {
+  const navigate = useNavigate();
   const { profile } = useAuth();
-  const [farmers, setFarmers] = useState<Farmer[]>([]);
-  const [advances, setAdvances] = useState<any[]>([]);
-  const [seasons, setSeasons] = useState<Season[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const adminId = getEffectiveAdminId(profile);
+
+  const { data: advances = [], isLoading: advancesLoading, error: advancesError, refetch: refetchAdvances } = useAdvances(adminId);
+  const { data: farmers = [], isLoading: farmersLoading } = useFarmers(adminId);
+  const { data: seasons = [], isLoading: seasonsLoading } = useSeasons(adminId);
+  
   const [selectedFarmer, setSelectedFarmer] = useState<Farmer | null>(null);
   const [farmerDropdown, setFarmerDropdown] = useState(false);
   const [farmerSearch, setFarmerSearch] = useState("");
   const [amount, setAmount] = useState("");
+  const [deductedStr, setDeductedStr] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
   const [seasonId, setSeasonId] = useState("");
   const [notes, setNotes] = useState("");
   const [date, setDate] = useState(() => getEATDateString());
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterSeason, setFilterSeason] = useState("All");
   const [tableSearch, setTableSearch] = useState("");
-  const [unitPrice, setUnitPrice] = useState("");
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -65,6 +72,10 @@ export default function AdvanceManagement() {
   const [editingAdvance, setEditingAdvance] = useState<any | null>(null);
   const [viewingAdvance, setViewingAdvance] = useState<any | null>(null);
   const [confirmConsolidate, setConfirmConsolidate] = useState<any | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const loading = (advancesLoading || farmersLoading || seasonsLoading) && advances.length === 0;
+  const error = (advancesError as any)?.message || null;
 
   const DRAFT_KEY = 'advance_management_draft';
 
@@ -116,36 +127,15 @@ export default function AdvanceManagement() {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
   }, [selectedFarmer, amount, unitPrice, seasonId, date, notes, draftLoaded]);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
-      const [farmersData, advancesData, seasonsData] = await Promise.all([
-        farmersService.getAll(adminId),
-        advancesService.getAll(adminId),
-        seasonsService.getAll(adminId)
-      ]);
-      setFarmers(farmersData);
-      setAdvances(advancesData);
-      setSeasons(seasonsData);
-      
-      const activeSeason = seasonsData.find(s => s.is_active);
+  // Auto-set active season
+  useEffect(() => {
+    if (seasons.length > 0 && !seasonId) {
+      const activeSeason = seasons.find(s => s.is_active);
       if (activeSeason) {
         setSeasonId(activeSeason.id);
       }
-    } catch (err: any) {
-      console.error("Error fetching data:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
+  }, [seasons, seasonId]);
 
   const totalGiven = advances.reduce((s, a) => s + (a.amount || 0), 0);
   const totalDeducted = advances.reduce((s, a) => s + (a.deducted || 0), 0);
@@ -200,19 +190,39 @@ export default function AdvanceManagement() {
       try {
         setSubmitting(true);
         const adminId = getEffectiveAdminId(profile);
-        const advanceData = {
+        const advanceData: any = {
           farmer_id: selectedFarmer.id,
           amount: parseFloat(amount),
-          deducted: 0,
           season_id: seasonId,
           issue_date: date,
           notes,
           unit_price: unitPrice ? parseFloat(unitPrice) : undefined,
-          admin_id: (adminId === 'SUPER_ADMIN' ? profile.id : adminId) || null,
+          admin_id: (adminId === 'SUPER_ADMIN' ? profile.id : adminId) || undefined,
         };
 
+        if (!editingAdvance) {
+          advanceData.deducted = 0;
+        } else if (['Admin', 'Super Admin'].includes(profile?.role || '') && deductedStr !== "") {
+          advanceData.deducted = parseFloat(deductedStr);
+        }
+
         if (editingAdvance) {
-          await advancesService.update(editingAdvance.id, advanceData);
+          const finalDeducted = advanceData.deducted !== undefined ? advanceData.deducted : (editingAdvance.deducted || 0);
+          const currentStatus = advanceData.amount <= finalDeducted ? 'Cleared' : 'Active';
+
+          const updatePayload: any = {
+            amount: advanceData.amount,
+            season_id: advanceData.season_id,
+            issue_date: advanceData.issue_date,
+            notes: advanceData.notes,
+            status: currentStatus,
+          };
+          
+          if (advanceData.unit_price !== undefined) updatePayload.unit_price = advanceData.unit_price;
+          if (advanceData.admin_id !== undefined) updatePayload.admin_id = advanceData.admin_id;
+          if (advanceData.deducted !== undefined) updatePayload.deducted = advanceData.deducted;
+
+          await advancesService.update(editingAdvance.id, updatePayload);
           setToast({ msg: "Advance updated successfully!", type: "success" });
         } else {
           // Check for existing active advance for this farmer in this season
@@ -233,8 +243,9 @@ export default function AdvanceManagement() {
             // Ensure even the first entry has a header if it didn't before
             const currentNotes = existingActive.notes || `[Initial ${existingActive.issue_date}]: UGX ${existingActive.amount.toLocaleString()}`;
             
+            const newTotalAmount = (existingActive.amount || 0) + newAmt;
             const mergedData = {
-              amount: (existingActive.amount || 0) + newAmt,
+              amount: newTotalAmount,
               notes: `${currentNotes}\n---\n${topupMsg}`,
               issue_date: date,
               unit_price: (unitPrice && parseFloat(unitPrice) > 0) ? parseFloat(unitPrice) : existingActive.unit_price,
@@ -259,9 +270,12 @@ export default function AdvanceManagement() {
         localStorage.removeItem(DRAFT_KEY);
         handleReset();
         
-        // Refresh list
-        const updatedAdvances = adminId ? await advancesService.getAll(adminId) : [];
-        setAdvances(updatedAdvances);
+        // Refresh all relevant queries by invalidating their prefixes
+        queryClient.invalidateQueries({ queryKey: ['advances'] });
+        queryClient.invalidateQueries({ queryKey: ['debt-summary'] });
+        queryClient.invalidateQueries({ queryKey: ['purchases'] });
+        queryClient.invalidateQueries({ queryKey: ['farmer'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       } catch (err: any) {
         setToast({ msg: err.message || "Failed to record advance", type: "error" });
       } finally {
@@ -315,7 +329,7 @@ export default function AdvanceManagement() {
 
       setToast({ msg: `Consolidated ${active.length} advances for ${group.farmerName}`, type: "success" });
       setConfirmConsolidate(null);
-      fetchData();
+      queryClient.invalidateQueries({ queryKey: ['advances', adminId] });
     } catch (err: any) {
       console.error("Consolidation error:", err);
       setToast({ msg: "Failed to consolidate advances", type: "error" });
@@ -328,6 +342,7 @@ export default function AdvanceManagement() {
     setSelectedFarmer(null);
     setFarmerSearch("");
     setAmount("");
+    setDeductedStr("");
     setNotes("");
     setUnitPrice("");
     setDate(getEATDateString());
@@ -338,9 +353,12 @@ export default function AdvanceManagement() {
 
   const handleEdit = (advance: any) => {
     setEditingAdvance(advance);
+    setViewingAdvance(null);
     setSelectedFarmer(advance.farmers || farmers.find(f => f.id === advance.farmer_id) || null);
-    setAmount(advance.amount.toString());
-    setUnitPrice(advance.unit_price?.toString() || "");
+    setFarmerSearch(advance.farmers?.name || "");
+    setAmount(String(advance.amount || ""));
+    setDeductedStr(String(advance.deducted || "0"));
+    setUnitPrice(advance.unit_price ? String(advance.unit_price) : "");
     setSeasonId(advance.season_id);
     setDate(advance.issue_date);
     setNotes(advance.notes || "");
@@ -369,7 +387,7 @@ export default function AdvanceManagement() {
         <ErrorState 
           title="Couldn't Load Advances" 
           message={error} 
-          onRetry={fetchData} 
+          onRetry={() => refetchAdvances()} 
         />
       </Layout>
     );
@@ -526,6 +544,27 @@ export default function AdvanceManagement() {
                     style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#374151", paddingLeft: "48px" }}
                   />
                 </div>
+                
+                {editingAdvance && ['Admin', 'Super Admin'].includes(profile?.role || '') && (
+                  <div className="mt-4 p-3 rounded-xl" style={{ border: "1px solid #FECACA", backgroundColor: "#FFF5F5" }}>
+                    <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 700, color: "#DC2626", display: "block", marginBottom: "6px" }}>⚠️ Manual Deducted Override</label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-semibold" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#9CA3AF" }}>UGX</span>
+                      <input
+                        type="number"
+                        value={deductedStr}
+                        onChange={e => setDeductedStr(e.target.value)}
+                        placeholder="e.g. 392000"
+                        className={inputBase()}
+                        style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#DC2626", paddingLeft: "48px", border: "1px solid #FECACA", backgroundColor: "#FEF2F2" }}
+                      />
+                    </div>
+                    <p style={{ fontFamily: "Inter, sans-serif", fontSize: "10px", color: "#9B1C1C", marginTop: "6px", lineHeight: "1.4" }}>
+                      Use this ONLY to correct a balance after a purchase was deleted. Set to the correct total amount already recovered from this advance.
+                    </p>
+                  </div>
+                )}
+                
                 {unitPrice && parseFloat(unitPrice) > 0 && amount && parseFloat(amount) > 0 && (
                   <div className="mt-2 p-2.5 rounded-lg bg-green-50 border border-green-100 flex items-center justify-between">
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#14532D", fontWeight: 600 }}>Expected KGs:</span>
@@ -687,6 +726,14 @@ export default function AdvanceManagement() {
                         </td>
                         <td className="px-2 py-4">
                           <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 600, color: "#111827" }}>{group.farmerName}</div>
+                          <div className="flex flex-col gap-0.5">
+                            {group.advances[0]?.farmers?.village && (
+                              <div style={{ fontFamily: "Inter, sans-serif", fontSize: "10px", color: "#6B7280" }}>{group.advances[0].farmers.village}</div>
+                            )}
+                            <div style={{ fontFamily: "Inter, sans-serif", fontSize: "9px", color: "#9CA3AF" }} className="truncate max-w-[120px]">
+                              ID: {group.farmerId}
+                            </div>
+                          </div>
                         </td>
                         <td className="px-2 py-4">
                           <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 500, color: "#4B5563", backgroundColor: "#F3F4F6", padding: "2px 8px", borderRadius: "12px" }}>

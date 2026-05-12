@@ -12,6 +12,12 @@ import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { useSync } from "../contexts/SyncContext";
 import { getEATDateString } from "../utils/dateUtils";
 import { PurchaseReceiptModal } from "../components/PurchaseReceiptModal";
+import { useFarmers } from "../hooks/queries/useFarmers";
+import { useSeasons } from "../hooks/queries/useSeasons";
+import { useLatestPrices } from "../hooks/queries/useLatestPrices";
+import { usePurchases } from "../hooks/queries/usePurchases";
+import { useAdvancesByFarmerId } from "../hooks/queries/useFarmerDetail";
+import { useQueryClient } from "@tanstack/react-query";
 
 const STANDARD_MOISTURE = parseFloat(import.meta.env.VITE_STANDARD_MOISTURE || "14");
 const PURCHASE_DRAFT_KEY = "cpms_purchase_entry_draft";
@@ -55,9 +61,7 @@ export default function PurchaseEntry() {
   const isEditMode = !!editId;
   const { profile } = useAuth();
   const { isOnline, addToSyncQueue } = useSync();
-  const [loading, setLoading] = useState(true);
-  const [allFarmers, setAllFarmers] = useState<Farmer[]>([]);
-  const [activeSeason, setActiveSeason] = useState<Season | null>(null);
+  const queryClient = useQueryClient();
   const [buyingPrices, setBuyingPrices] = useState({ Kiboko: 0, Red: 0, Kase: 0 });
   const [selectedFarmer, setSelectedFarmer] = useState<Farmer | null>(null);
   const [farmerSearch, setFarmerSearch] = useState("");
@@ -83,104 +87,102 @@ export default function PurchaseEntry() {
   const [savedPurchase, setSavedPurchase] = useState<any>(null);
   const [manualCashPaid, setManualCashPaid] = useState<string>("");
 
-  const [farmerAdvances, setFarmerAdvances] = useState<Advance[]>([]);
+
+  const adminId = getEffectiveAdminId(profile);
+  
+  // Replace monolithic useEffect with centralized query hooks
+  const { data: allFarmers = [], isLoading: farmersLoading } = useFarmers(adminId);
+  const { data: seasons = [], isLoading: seasonsLoading } = useSeasons(adminId);
+  const { data: prices, isLoading: pricesLoading } = useLatestPrices(adminId);
+  const { data: recentPurchases = [], isLoading: purchasesLoading } = usePurchases(adminId, 100);
+
+  const activeSeason = seasons.find(s => s.is_active);
+  const loading = (farmersLoading || seasonsLoading || pricesLoading || (isEditMode && purchasesLoading)) && allFarmers.length === 0;
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const adminId = getEffectiveAdminId(profile);
-        if (!adminId) return;
-        const [farmers, season, prices] = await Promise.all([
-          farmersService.getAll(adminId),
-          seasonsService.getActive(adminId),
-          pricesService.getLatest(adminId)
-        ]);
-        setAllFarmers(farmers);
-        setActiveSeason(season);
-        if (prices) {
-          setBuyingPrices({
-            Kiboko: prices.kiboko_price,
-            Red: prices.red_price || 0,
-            Kase: prices.kase_price || 0
-          });
-        }
-
-        // If editing, load existing purchase data
-        if (isEditMode && editId) {
-          const existing = await purchasesService.getById(editId);
-          if (existing) {
-            setCoffeeType(existing.coffee_type as any);
-            setGrossWeight(String(existing.gross_weight));
-            setMoisture(String(existing.moisture_content));
-            setStandardMoisture(String(existing.standard_moisture));
-            setAdvanceDeduct(String(existing.advance_deducted || ''));
-            setDate(existing.date);
-             setManualPrice(existing.buying_price !== undefined ? String(existing.buying_price) : undefined);
-            if (existing.cash_paid !== undefined && existing.cash_paid < (existing.total_amount - (existing.advance_deducted || 0))) {
-              setManualCashPaid(String(existing.cash_paid));
-            }
-            // Find and set the farmer
-            const farmer = farmers.find(f => f.id === existing.farmer_id);
-            if (farmer) {
-              setSelectedFarmer(farmer);
-              setFarmerSearch(farmer.name);
-            }
-          }
-        } else {
-          // New purchase - check for farmerId param first, then try to restore draft
-          const farmerIdFromParam = farmerIdParam;
-          const draftStr = localStorage.getItem(PURCHASE_DRAFT_KEY);
-          let draft: any = null;
-          if (draftStr) {
-            try {
-              draft = JSON.parse(draftStr);
-            } catch (e) {
-              console.error("Error parsing purchase draft", e);
-            }
-          }
-
-          if (farmerIdFromParam) {
-            const farmer = farmers.find(f => f.id === farmerIdFromParam);
-            if (farmer) {
-              setSelectedFarmer(farmer);
-              setFarmerSearch(farmer.name);
-              setEudrNumber(farmer.eudr_number || "");
-            }
-          } else if (draft) {
-            setCoffeeType(draft.coffeeType || "Kiboko");
-            setGrossWeight(draft.grossWeight || "");
-            setMoisture(draft.moisture || "");
-            setStandardMoisture(draft.standardMoisture || String(STANDARD_MOISTURE));
-            setAdvanceDeduct(draft.advanceDeduct || "");
-            setDate(draft.date || getEATDateString());
-            setManualDeduction(draft.manualDeduction || "");
-            setIsNewFarmer(!!draft.isNewFarmer);
-            setNewFarmerData(draft.newFarmerData || { phone: "", village: "", eudr_number: "" });
-            setEudrNumber(draft.eudrNumber || "");
-            setManualPrice(draft.manualPrice !== undefined ? draft.manualPrice : undefined);
-            if (draft.selectedFarmer) {
-              setSelectedFarmer(draft.selectedFarmer);
-              setFarmerSearch(draft.selectedFarmer.name);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Error fetching data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [isEditMode]);
-
-  useEffect(() => {
-    if (selectedFarmer && !isNewFarmer) {
-      advancesService.getByFarmerId(selectedFarmer.id).then(setFarmerAdvances);
-    } else {
-      setFarmerAdvances([]);
+    if (prices) {
+      setBuyingPrices({
+        Kiboko: prices.kiboko_price,
+        Red: prices.red_price || 0,
+        Kase: prices.kase_price || 0
+      });
     }
-  }, [selectedFarmer, isNewFarmer]);
+  }, [prices]);
+
+  // Handle Edit Mode and Restoring Drafts
+  useEffect(() => {
+    const editingRecord = isEditMode ? recentPurchases.find(p => p.id === editId) : null;
+
+    if (isEditMode && editingRecord) {
+      setCoffeeType(editingRecord.coffee_type as any);
+      setGrossWeight(String(editingRecord.gross_weight));
+      setMoisture(String(editingRecord.moisture_content));
+      setStandardMoisture(String(editingRecord.standard_moisture));
+      setAdvanceDeduct(String(editingRecord.advance_deducted || ''));
+      setDate(editingRecord.date);
+      setManualPrice(editingRecord.buying_price !== undefined ? String(editingRecord.buying_price) : undefined);
+      if (editingRecord.cash_paid !== undefined && editingRecord.cash_paid < (editingRecord.total_amount - (editingRecord.advance_deducted || 0))) {
+        setManualCashPaid(String(editingRecord.cash_paid));
+      }
+      
+      const farmer = allFarmers.find(f => f.id === editingRecord.farmer_id);
+      if (farmer) {
+        setSelectedFarmer(farmer);
+        setFarmerSearch(farmer.name);
+      }
+    } else if (!isEditMode) {
+      const farmerIdFromParam = farmerIdParam;
+      const draftStr = localStorage.getItem(PURCHASE_DRAFT_KEY);
+      let draft: any = null;
+      if (draftStr) {
+        try { draft = JSON.parse(draftStr); } catch (e) {}
+      }
+
+      if (farmerIdFromParam && allFarmers.length > 0) {
+        const farmer = allFarmers.find(f => f.id === farmerIdFromParam);
+        if (farmer) {
+          setSelectedFarmer(farmer);
+          setFarmerSearch(farmer.name);
+          setEudrNumber(farmer.eudr_number || "");
+        }
+      } else if (draft && !selectedFarmer) {
+        setCoffeeType(draft.coffeeType || "Kiboko");
+        setGrossWeight(draft.grossWeight || "");
+        setMoisture(draft.moisture || "");
+        setStandardMoisture(draft.standardMoisture || String(STANDARD_MOISTURE));
+        setAdvanceDeduct(draft.advanceDeduct || "");
+        setDate(draft.date || getEATDateString());
+        setManualDeduction(draft.manualDeduction || "");
+        setIsNewFarmer(!!draft.isNewFarmer);
+        setNewFarmerData(draft.newFarmerData || { phone: "", village: "", eudr_number: "" });
+        setEudrNumber(draft.eudrNumber || "");
+        setManualPrice(draft.manualPrice !== undefined ? draft.manualPrice : undefined);
+        if (draft.selectedFarmer) {
+          setSelectedFarmer(draft.selectedFarmer);
+          setFarmerSearch(draft.selectedFarmer.name);
+        }
+      }
+    }
+  }, [isEditMode, recentPurchases, editId, allFarmers, farmerIdParam, selectedFarmer]);
+
+  const { data: farmerAdvances, isLoading: advancesLoading } = useAdvancesByFarmerId(!isNewFarmer ? selectedFarmer?.id || undefined : undefined);
+
+  const resetForm = () => {
+    setSelectedFarmer(null);
+    setFarmerSearch("");
+    setIsNewFarmer(false);
+    setNewFarmerData({ phone: "", village: "", eudr_number: "" });
+    setGrossWeight("");
+    setMoisture("");
+    setAdvanceDeduct("");
+    setManualDeduction("");
+    setManualPrice(undefined);
+    setManualCashPaid("");
+    setEudrNumber("");
+    setDate(getEATDateString());
+    setErrors({});
+    localStorage.removeItem(PURCHASE_DRAFT_KEY);
+  };
 
   // Persist draft to localStorage on change
   useEffect(() => {
@@ -207,8 +209,11 @@ export default function PurchaseEntry() {
   ]);
 
   // Handle cumulative advances for deduction logic
-  const activeAdvances = farmerAdvances.filter(a => a.status === "Active");
-  const totalRemainingAdvance = activeAdvances.reduce((sum, a) => sum + (a.remaining || 0), 0);
+  const activeAdvances = (farmerAdvances || []).filter(a => a.status === "Active");
+  const totalRemainingAdvance = activeAdvances.reduce((sum, a) => {
+    const remaining = a.remaining !== undefined ? a.remaining : ((a.amount || 0) - (a.deducted || 0));
+    return sum + Math.max(0, remaining);
+  }, 0);
   const totalOriginalAdvance = activeAdvances.reduce((sum, a) => sum + (a.amount || 0), 0);
   const totalDeductedAdvance = activeAdvances.reduce((sum, a) => sum + (a.deducted || 0), 0);
   
@@ -323,7 +328,7 @@ export default function PurchaseEntry() {
             village: newFarmerData.village,
             eudr_number: eudrNumber,
             region: "Western Uganda",
-            admin_id: (adminId === 'SUPER_ADMIN' ? profile?.id : adminId) || null,
+            admin_id: (adminId === 'SUPER_ADMIN' ? profile?.id : adminId) || "",
           };
 
           if (isOnline) {
@@ -406,8 +411,13 @@ export default function PurchaseEntry() {
               advance_deducted: purchasePayload.p_advance_deducted,
               cash_paid: purchasePayload.p_cash_paid,
               field_agent_id: purchasePayload.p_field_agent_id,
-            };
+            }
           }
+          // Invalidate relevant queries to ensure the UI updates instantly
+          queryClient.invalidateQueries({ queryKey: ['purchases', adminId] });
+          queryClient.invalidateQueries({ queryKey: ['advances', 'farmer', farmerId] });
+          queryClient.invalidateQueries({ queryKey: ['debt-summary', adminId] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-stats', adminId] });
         } else {
           await addToSyncQueue('CREATE_PURCHASE_ATOMIC', purchasePayload);
           finalPurchaseData = {
@@ -426,18 +436,29 @@ export default function PurchaseEntry() {
         }
       }
 
-      setSavedPurchase({
-        ...finalPurchaseData,
-        farmers: isNewFarmer ? { ...selectedFarmer, ...newFarmerData } : selectedFarmer,
-        profiles: { full_name: profile?.full_name }
-      });
+      // Clear fields on successful save
+      if (!isEditMode) {
+        // We call this BEFORE setting saved purchase to ensure the local state is clean
+        // but the savedPurchase object captures the values needed for the receipt
+        const finalFarmer = isNewFarmer ? { ...selectedFarmer, ...newFarmerData } : selectedFarmer;
+        
+        setSavedPurchase({
+          ...finalPurchaseData,
+          farmers: finalFarmer,
+          profiles: { full_name: profile?.full_name }
+        });
+
+        resetForm();
+      } else {
+        setSavedPurchase({
+          ...finalPurchaseData,
+          farmers: selectedFarmer,
+          profiles: { full_name: profile?.full_name }
+        });
+      }
+
       setToast(true);
       setShowReceipt(true);
-      
-      // Clear draft on successful save
-      if (!isEditMode) {
-        localStorage.removeItem(PURCHASE_DRAFT_KEY);
-      }
       
       // We don't navigate immediately anymore so the user can print the receipt
     } catch (err: any) {
@@ -891,9 +912,9 @@ export default function PurchaseEntry() {
 
               <div className="grid grid-cols-3 gap-4 mb-4">
                 {[
-                  { label: "Total Advance Given", value: activeAdvances.length > 0 ? formatUGX(totalOriginalAdvance) : "UGX 0", color: "#374151" },
-                  { label: "Total Deducted", value: activeAdvances.length > 0 ? formatUGX(totalDeductedAdvance) : "UGX 0", color: "#16A34A" },
-                  { label: "Current Balance", value: activeAdvances.length > 0 ? formatUGX(totalRemainingAdvance) : "UGX 0", color: activeAdvances.length > 0 ? "#DC2626" : "#6B7280" },
+                  { label: "Total Advance Given", value: advancesLoading ? "..." : (activeAdvances.length > 0 ? formatUGX(totalOriginalAdvance) : "UGX 0"), color: "#374151" },
+                  { label: "Total Deducted", value: advancesLoading ? "..." : (activeAdvances.length > 0 ? formatUGX(totalDeductedAdvance) : "UGX 0"), color: "#16A34A" },
+                  { label: "Current Balance", value: advancesLoading ? "..." : (activeAdvances.length > 0 ? formatUGX(totalRemainingAdvance) : "UGX 0"), color: activeAdvances.length > 0 ? "#DC2626" : "#6B7280" },
                 ].map(item => (
                   <div key={item.label} className="p-3 rounded-xl" style={{ backgroundColor: "#F8FAFC", border: "1px solid #F1F5F9" }}>
                     <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#6B7280", marginBottom: "4px" }}>{item.label}</div>
@@ -1132,7 +1153,9 @@ export default function PurchaseEntry() {
         onClose={() => {
           setShowReceipt(false);
           setToast(false);
-          navigate("/purchases");
+          if (isEditMode) {
+            navigate("/purchases");
+          }
         }} 
         purchase={savedPurchase}
       />

@@ -7,38 +7,30 @@ import {
 import { useAuth } from "../hooks/useAuth";
 import { agentAdvancesService, AgentAdvance } from "../services/agentAdvancesService";
 import { purchasesService } from "../services/purchasesService";
+import { useAgentAdvancesForAgent } from "../hooks/queries/useAgentAdvances";
+import { usePurchases } from "../hooks/queries/usePurchases";
+import { useSync } from "../contexts/SyncContext";
 
 const formatUGX = (v: number) => `UGX ${Math.round(v).toLocaleString()}`;
 
 export default function Settlement() {
   const { profile } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const { isOnline } = useSync();
+  const agentId = profile?.id || null;
+
+  const { data: advancesData = [], isLoading: advancesLoading, error: advancesError } = useAgentAdvancesForAgent(agentId);
+  const { data: purchasesData = [], isLoading: purchasesLoading, error: purchasesError } = usePurchases(agentId);
+
   const [advances, setAdvances] = useState<AgentAdvance[]>([]);
   const [purchases, setPurchases] = useState<any[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchData = useCallback(async () => {
-    if (!profile?.id) return;
-    try {
-      setLoading(true);
-      setError(null);
-      const [advancesData, purchasesData] = await Promise.all([
-        agentAdvancesService.getAllForAgent(profile.id),
-        purchasesService.getForAgent(profile.id)
-      ]);
-      setAdvances(advancesData);
-      setPurchases(purchasesData);
-    } catch (err: any) {
-      console.error("Error fetching settlement data:", err);
-      setError("Failed to load settlement data. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [profile?.id]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (advancesData) setAdvances(advancesData);
+    if (purchasesData) setPurchases(purchasesData);
+  }, [advancesData, purchasesData]);
+
+  const loading = (advancesLoading || purchasesLoading) && advances.length === 0;
+  const error = (advancesError || purchasesError) ? "Failed to load settlement data." : null;
 
   const totalCapital = advances.reduce((sum, a) => sum + (a.amount || 0), 0);
   const totalPurchases = purchases.reduce((sum, p) => sum + (p.total_amount || 0), 0);

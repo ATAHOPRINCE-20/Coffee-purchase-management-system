@@ -1,0 +1,22 @@
+[
+  {
+    "id": "47e5b2ef-b393-447f-85e2-741d4b19d24c",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "name": "GARUGA IT",
+    "phone": "0757136062",
+    "email": "garugait@gmail.com",
+    "location": "Kampala,Uganda",
+    "updated_at": "2026-05-06T19:31:23.653229+00:00",
+    "capital": -3299900
+  },
+  {
+    "id": "a414398f-b9e0-40e9-a14d-dc69c24bcd24",
+    "admin_id": "093bd528-64b9-495d-ab5b-ca54fcb9dfc0",
+    "name": "Garuga Coffee limited ",
+    "phone": "0750031999",
+    "email": "garugacoffee@gmail.com",
+    "location": "Nyamukana ",
+    "updated_at": "2026-05-08T19:35:50.369387+00:00",
+    "capital": -13181000
+  }
+]

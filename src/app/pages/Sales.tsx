@@ -12,6 +12,13 @@ import { reportService, PostSaleReport } from "../services/reportService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { settingsService, CompanyProfile } from "../services/settingsService";
 import { getEATDateString } from "../utils/dateUtils";
+import { useSales as useSalesHook } from "../hooks/queries/useSales";
+import { usePurchases } from "../hooks/queries/usePurchases";
+import { useExpenses } from "../hooks/queries/useExpenses";
+import { useSeasons } from "../hooks/queries/useSeasons";
+import { useStock } from "../hooks/queries/useStock";
+import { useSync } from "../contexts/SyncContext";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -55,23 +62,30 @@ function PnLCard({ label, value, sub, icon: Icon, color, bgColor, big }: {
 
 export default function SalesPage() {
   const { profile } = useAuth();
-  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin" || profile?.role === "Field Agent";
+  const { isOnline, addToSyncQueue } = useSync();
+  const queryClient = useQueryClient();
+  const adminId = getEffectiveAdminId(profile);
+
+  const { data: salesData = [], isLoading: salesLoading } = useSalesHook(adminId);
+  const { data: purchasesData = [], isLoading: purchasesLoading } = usePurchases(adminId);
+  const { data: expensesData = [], isLoading: expensesLoading } = useExpenses(adminId);
+  const { data: seasons = [] } = useSeasons(adminId);
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [purchases, setPurchases] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [activeSeason, setActiveSeason] = useState<Season | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  const [availableStock, setAvailableStock] = useState<number | null>(null);
-  const [loadingStock, setLoadingStock] = useState(false);
+  
+  const { data: stockVal, isLoading: loadingStock } = useStock(adminId, activeSeason?.id);
+  const availableStock = stockVal ?? null;
 
   const [report, setReport] = useState<PostSaleReport | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [loadingReport, setLoadingReport] = useState(false);
   const [pnlView, setPnlView] = useState<'Batch' | 'Season'>('Batch');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // Form
   const [coffeeType] = useState<CoffeeType>("Kase");
@@ -124,35 +138,15 @@ export default function SalesPage() {
   const netWeight = Math.max(0, gross - deduction);
   const totalAmount = netWeight * price;
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
-      const [salesData, purchasesData, expensesData, season] = await Promise.all([
-        salesService.getAll(adminId),
-        purchasesService.getAll(adminId),
-        expensesService.getAll(adminId),
-        seasonsService.getActive(adminId),
-      ]);
-      setSales(salesData);
-      setPurchases(purchasesData);
-      setExpenses(expensesData);
-      setActiveSeason(season);
+  useEffect(() => {
+    if (salesData) setSales(salesData);
+    if (purchasesData) setPurchases(purchasesData);
+    if (expensesData) setExpenses(expensesData);
+    if (seasons) setActiveSeason(seasons.find(s => s.is_active) || null);
+  }, [salesData, purchasesData, expensesData, seasons]);
 
-      // Fetch available stock
-      setLoadingStock(true);
-      const stock = await salesService.getAvailableStock(adminId, season?.id);
-      setAvailableStock(stock);
-    } catch (err: any) {
-      console.error("Error loading sales data:", err);
-    } finally {
-      setLoading(false);
-      setLoadingStock(false);
-    }
-  };
-
-  useEffect(() => { fetchData(); }, []);
+  const loading = (salesLoading || purchasesLoading || expensesLoading) && sales.length === 0;
+  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin" || profile?.role === "Field Agent";
 
   const showToast = (msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -177,7 +171,7 @@ export default function SalesPage() {
       const adminId = getEffectiveAdminId(profile);
       if (!adminId || !profile) return;
       
-      const newSale = await salesService.create({
+      const saleData = {
         admin_id: (adminId === 'SUPER_ADMIN' ? profile.id : adminId) || '',
         season_id: activeSeason?.id,
         date,
@@ -191,32 +185,38 @@ export default function SalesPage() {
         total_amount: parseFloat(totalAmount.toFixed(2)),
         buyer_name: buyerName.trim() || undefined,
         notes: notes.trim() || undefined,
-      });
-      setSales(prev => [newSale, ...prev]);
+      };
+
+      if (!isOnline) {
+        await addToSyncQueue('CREATE_SALE', saleData);
+        const optimisticSale = { ...saleData, id: 'temp-' + Date.now(), created_at: new Date().toISOString() } as Sale;
+        setSales(prev => [optimisticSale, ...prev]);
+        showToast("Sale recorded (waiting for sync)!");
+      } else {
+        const newSale = await salesService.create(saleData);
+        setSales(prev => [newSale, ...prev]);
+        queryClient.invalidateQueries({ queryKey: ['sales', adminId] });
+        queryClient.invalidateQueries({ queryKey: ['available-stock', adminId] });
+        showToast("Sale recorded successfully!");
+
+        // Generate Report (Only if online for now as it needs server data)
+        try {
+          setLoadingReport(true);
+          const reportData = await reportService.getTransactionsBeforeSale(adminId, newSale);
+          setReport(reportData);
+          setShowReport(true);
+          await reportService.saveReport(adminId, newSale.id, reportData);
+        } catch (reportErr) {
+          console.error("Failed to generate post-sale report:", reportErr);
+        } finally {
+          setLoadingReport(false);
+        }
+      }
+
       setGrossWeight(""); setMoisture(""); setSellingPrice("");
       setBuyerName(""); setNotes(""); setDate(getEATDateString());
       setManualDeduction("");
       localStorage.removeItem(DRAFT_KEY);
-      showToast("Sale recorded successfully!");
-
-      // Refresh stock
-      const stock = await salesService.getAvailableStock(adminId, activeSeason?.id);
-      setAvailableStock(stock);
-
-      // Generate Report
-      try {
-        setLoadingReport(true);
-        const reportData = await reportService.getTransactionsBeforeSale(adminId, newSale);
-        setReport(reportData);
-        setShowReport(true);
-        
-        // Persist the report
-        await reportService.saveReport(adminId, newSale.id, reportData);
-      } catch (reportErr) {
-        console.error("Failed to generate post-sale report:", reportErr);
-      } finally {
-        setLoadingReport(false);
-      }
     } catch (err: any) {
       setFormError(err.message || "Failed to save sale.");
     } finally {
@@ -228,15 +228,16 @@ export default function SalesPage() {
     if (!confirm("Delete this sale record? This cannot be undone.")) return;
     try {
       setDeletingId(id);
-      await salesService.delete(id);
-      setSales(prev => prev.filter(s => s.id !== id));
-      showToast("Sale deleted.");
-      
-      // Refresh stock
-      const adminId = getEffectiveAdminId(profile);
-      if (adminId) {
-        const stock = await salesService.getAvailableStock(adminId, activeSeason?.id);
-        setAvailableStock(stock);
+      if (!isOnline) {
+        await addToSyncQueue('DELETE_ITEM', { table: 'sales', id });
+        setSales(prev => prev.filter(s => s.id !== id));
+        showToast("Sale deleted (waiting for sync).");
+      } else {
+        await salesService.delete(id);
+        setSales(prev => prev.filter(s => s.id !== id));
+        queryClient.invalidateQueries({ queryKey: ['sales', adminId] });
+        queryClient.invalidateQueries({ queryKey: ['available-stock', adminId] });
+        showToast("Sale deleted.");
       }
     } catch (err: any) {
       showToast(err.message || "Failed to delete.", false);

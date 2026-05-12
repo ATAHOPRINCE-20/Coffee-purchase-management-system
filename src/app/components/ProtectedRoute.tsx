@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Navigate, Outlet } from 'react-router';
 import { useAuth, UserRole } from '../hooks/useAuth';
 
@@ -7,13 +8,35 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
   const { user, profile, loading, signOut } = useAuth();
+  const [showRetry, setShowRetry] = useState(false);
+
+  useEffect(() => {
+    let timer: any;
+    if (loading) {
+      timer = setTimeout(() => setShowRetry(true), 5000);
+    } else {
+      setShowRetry(false);
+    }
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-green-700 border-t-transparent rounded-full animate-spin"></div>
           <p className="text-sm font-medium text-gray-500">Authenticating...</p>
+          {showRetry && (
+            <div className="mt-4 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-700 text-center">
+              <p className="text-xs text-gray-400">Taking longer than usual?</p>
+              <button 
+                onClick={signOut}
+                className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-all shadow-sm"
+              >
+                Sign Out & Retry
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

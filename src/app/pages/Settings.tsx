@@ -12,7 +12,7 @@ import { formatCurrency } from "../utils/formatters";
 import { CapitalLedgerPrint } from "../components/pos/CapitalLedgerPrint";
 
 const Section = ({ icon: Icon, title, subtitle, children }: { icon: any; title: string; subtitle: string; children: React.ReactNode }) => (
-  <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm mb-6">
+  <div className="bg-white rounded-3xl p-5 md:p-8 border border-gray-100 shadow-sm mb-6">
     <div className="flex items-center gap-3 mb-8 pb-5 border-b border-gray-50">
       <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400">
         <Icon size={20} />
@@ -335,14 +335,14 @@ export default function Settings() {
           {activeTab === "Capital" && canManageAgency && (
             <Section icon={Wallet} title="Capital Management" subtitle="Manage your operational funds and track expenditure">
               <div className="space-y-6">
-                <div className="bg-[#14532D] rounded-2xl p-6 text-white flex justify-between items-center">
+                <div className="bg-[#14532D] rounded-2xl p-6 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
                     <p className="text-white/70 text-xs font-bold uppercase tracking-wider mb-1">Current Balance</p>
                     <h2 className="text-3xl font-black">{formatCurrency(agencyData.capital || 0)}</h2>
                   </div>
                   <button 
                     onClick={() => setShowTopUp(true)}
-                    className="flex items-center gap-2 px-6 py-3 rounded-xl bg-white text-[#14532D] text-sm font-bold hover:bg-gray-50 transition-all shadow-md"
+                    className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-white text-[#14532D] text-sm font-bold hover:bg-gray-50 transition-all shadow-md"
                   >
                     <Plus size={18} />
                     Top up Capital
@@ -351,7 +351,7 @@ export default function Settings() {
 
                 {/* Summary Stats */}
                 {ledger.length > 0 && (
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-green-50 border border-green-100 rounded-2xl p-4">
                       <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">Total Invested</p>
                       <p className="text-lg font-black text-green-800">
@@ -418,7 +418,7 @@ export default function Settings() {
                 )}
 
                 <div>
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
                     <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
                       Recent Transactions
                       <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-bold">LATEST 20</span>
@@ -431,7 +431,7 @@ export default function Settings() {
                       Print Ledger
                     </button>
                   </div>
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
                     {loading ? (
                       <div className="flex items-center justify-center py-12">
                         <Loader2 size={24} className="animate-spin text-[#14532D]" />
@@ -444,12 +444,12 @@ export default function Settings() {
                       <>
                         {ledger.map(entry => (
                           <div key={entry.id} className="flex items-center justify-between p-4 rounded-2xl border border-gray-50 hover:border-gray-100 transition-all bg-white group">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
                               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${entry.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                                 {entry.amount > 0 ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}
                               </div>
                               <div>
-                                <p className="text-sm font-bold text-gray-900">{entry.notes || entry.type}</p>
+                                <p className="text-sm font-bold text-gray-900 truncate">{entry.notes || entry.type}</p>
                                 <p className="text-[10px] text-gray-400 font-medium">
                                   {new Date(entry.created_at).toLocaleDateString()} • {new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>

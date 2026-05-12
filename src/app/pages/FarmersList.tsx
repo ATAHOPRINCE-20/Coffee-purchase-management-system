@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { Layout } from "../components/Layout";
 import { Search, Plus, Eye, Phone, MapPin, Loader2, ChevronDown, Users } from "lucide-react";
@@ -8,6 +8,9 @@ import { advancesService } from "../services/advancesService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { ErrorState } from "../components/ErrorState";
 import { supabase } from "../lib/supabase";
+import { useFarmers } from "../hooks/queries/useFarmers";
+import { usePurchases } from "../hooks/queries/usePurchases";
+import { useAdvances } from "../hooks/queries/useAdvances";
 
 function formatUGX(v: number) {
   return `UGX ${v.toLocaleString()}`;
@@ -16,71 +19,62 @@ function formatUGX(v: number) {
 export default function FarmersList() {
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const adminId = getEffectiveAdminId(profile);
+
   const [search, setSearch] = useState("");
-  const [farmers, setFarmers] = useState<Farmer[]>([]);
-  const [enriched, setEnriched] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [adminNames, setAdminNames] = useState<Record<string, string>>({});
   const [collapsedAdmins, setCollapsedAdmins] = useState<Record<string, boolean>>({});
 
+  const { data: farmers = [], isLoading: farmersLoading, error: farmersError, refetch: refetchFarmers } = useFarmers(adminId);
+  const { data: purchases = [], isLoading: purchasesLoading } = usePurchases(adminId);
+  const { data: advances = [], isLoading: advancesLoading } = useAdvances(adminId);
+
+  const loading = (farmersLoading || purchasesLoading || advancesLoading) && farmers.length === 0;
+  const error = (farmersError as any)?.message || null;
 
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
-      const [farmersData, purchasesData, advancesData] = await Promise.all([
-        farmersService.getAll(adminId),
-        purchasesService.getAll(adminId),
-        advancesService.getAll(adminId)
-      ]);
 
-      const enrichedData = farmersData.map(f => {
-        const farmerPurchases = (purchasesData as any[]).filter(p => p.farmer_id === f.id);
-        const farmerAdvance = (advancesData as any[]).find(a => a.farmer_id === f.id && a.status === "Active");
-        const totalValue = farmerPurchases.reduce((sum, p) => sum + (p.total_amount || 0), 0);
-        const totalWeight = farmerPurchases.reduce((sum, p) => sum + (p.payable_weight || 0), 0);
-        return { 
-          ...f, 
-          deliveries: farmerPurchases.length, 
-          totalValue, 
-          totalWeight, 
-          advanceBalance: farmerAdvance?.remaining || 0, 
-          advanceStatus: farmerAdvance?.status || "None" 
-        };
-      });
-
-      setFarmers(farmersData);
-      setEnriched(enrichedData);
-
-      // Fetch admin names for Super Admin grouping
-      if (profile?.role === 'Super Admin') {
-        const adminIds = [...new Set(farmersData.map(f => f.admin_id).filter(Boolean))] as string[];
-        if (adminIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .in('id', adminIds);
-          const nameMap: Record<string, string> = {};
-          (profiles || []).forEach((p: any) => { nameMap[p.id] = p.full_name; });
-          setAdminNames(nameMap);
-        }
-      }
-    } catch (err: any) {
-      console.error("Error fetching farmers:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const enriched = useMemo(() => {
+    return farmers.map(f => {
+      const farmerPurchases = (purchases as any[]).filter(p => p.farmer_id === f.id);
+      const farmerAdvancesForFarmer = (advances as any[]).filter(a => a.farmer_id === f.id);
+      const totalValue = farmerPurchases.reduce((sum, p) => sum + (p.total_amount || 0), 0);
+      const totalWeight = farmerPurchases.reduce((sum, p) => sum + (p.payable_weight || 0), 0);
+      const advanceBalance = farmerAdvancesForFarmer.reduce((sum: number, a: any) => {
+        if (a.status !== 'Active') return sum;
+        const rem = a.remaining !== undefined && a.remaining !== null
+          ? a.remaining
+          : Math.max(0, (a.amount || 0) - (a.deducted || 0));
+        return sum + rem;
+      }, 0);
+      return { 
+        ...f, 
+        deliveries: farmerPurchases.length, 
+        totalValue, 
+        totalWeight, 
+        advanceBalance,
+        advanceStatus: farmerAdvancesForFarmer.some((a: any) => a.status === 'Active') ? 'Active' : 'None'
+      };
+    });
+  }, [farmers, purchases, advances]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (profile?.role === 'Super Admin' && farmers.length > 0) {
+      const adminIds = [...new Set(farmers.map(f => f.admin_id).filter(Boolean))] as string[];
+      if (adminIds.length > 0) {
+        supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', adminIds)
+          .then(({ data: profiles }) => {
+            const nameMap: Record<string, string> = {};
+            (profiles || []).forEach((p: any) => { nameMap[p.id] = p.full_name; });
+            setAdminNames(nameMap);
+          });
+      }
+    }
+  }, [farmers, profile?.role]);
 
   const filtered = enriched.filter(f =>
     f.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -127,7 +121,7 @@ export default function FarmersList() {
         <ErrorState 
           title="Couldn't Load Clients" 
           message={error} 
-          onRetry={fetchData} 
+          onRetry={() => refetchFarmers()} 
         />
       </Layout>
     );

@@ -1,0 +1,47 @@
+[
+  {
+    "id": "c6ba9ba5-319e-47c7-86ea-8a9241bb7ec6",
+    "name": "Season 2026",
+    "is_active": true,
+    "start_date": "2026-03-21",
+    "end_date": "2026-12-31",
+    "created_at": "2026-03-21T10:22:12.398065+00:00",
+    "admin_id": "242b0f6f-cd7f-43f0-ae65-32289314635e"
+  },
+  {
+    "id": "1a85fdd4-614e-44d5-bf25-e2d83de43265",
+    "name": "2026-2027",
+    "is_active": true,
+    "start_date": "2026-03-21",
+    "end_date": "2026-04-10",
+    "created_at": "2026-03-21T10:38:17.470728+00:00",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c"
+  },
+  {
+    "id": "706ec8b3-8d69-486d-b530-1cf72079384f",
+    "name": "2025-2026",
+    "is_active": true,
+    "start_date": "2026-05-01",
+    "end_date": "2026-08-01",
+    "created_at": "2026-03-25T08:40:03.85144+00:00",
+    "admin_id": "9ea3a444-0699-48fb-9220-c373fa9b0bd3"
+  },
+  {
+    "id": "790ac9ae-707c-412a-9273-b7bab18dc94e",
+    "name": "Season_ 2026",
+    "is_active": true,
+    "start_date": "2026-03-25",
+    "end_date": "2026-09-01",
+    "created_at": "2026-03-30T17:10:50.538671+00:00",
+    "admin_id": "093bd528-64b9-495d-ab5b-ca54fcb9dfc0"
+  },
+  {
+    "id": "6b25b595-9b4e-41a5-9040-b85d89e2c917",
+    "name": "oct-nov",
+    "is_active": true,
+    "start_date": "2026-05-05",
+    "end_date": "2026-05-07",
+    "created_at": "2026-05-06T14:35:54.162938+00:00",
+    "admin_id": "e4fcfb60-e5a8-4625-bb32-b18e14fba0f6"
+  }
+]

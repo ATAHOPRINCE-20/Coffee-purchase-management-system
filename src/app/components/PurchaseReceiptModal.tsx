@@ -3,6 +3,9 @@ import { useReactToPrint } from 'react-to-print';
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
 } from "../components/ui/dialog";
 import { Printer, X, Loader2, Coffee, Download } from 'lucide-react';
 import { Separator } from "../components/ui/separator";
@@ -56,17 +59,19 @@ export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseRece
       setIsDownloading(true);
       // Briefly make it visible in typical flow for html-to-image to capture
       const el = componentRef.current;
+      el.style.visibility = 'visible';
       el.style.opacity = '1';
       
-      // We grab roughly double resolution for crisp PDF text
+      // We grab slightly lower resolution for faster generation while maintaining quality
       const dataUrl = await toPng(el, {
-        quality: 1.0,
+        quality: 0.95,
         backgroundColor: '#ffffff',
         width: el.scrollWidth,
         height: el.scrollHeight,
-        pixelRatio: 2
+        pixelRatio: 1.5
       });
       
+      el.style.visibility = 'hidden';
       el.style.opacity = '0'; // Re-hide it
 
       const imgProps = { width: el.scrollWidth, height: el.scrollHeight };
@@ -96,6 +101,12 @@ export function PurchaseReceiptModal({ isOpen, onClose, purchase }: PurchaseRece
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md w-[92vw] max-w-[400px] p-0 overflow-hidden border-none shadow-2xl rounded-2xl bg-white max-h-[90dvh] md:max-h-[85vh]">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Purchase Receipt</DialogTitle>
+          <DialogDescription>
+            View and download the receipt for this coffee purchase.
+          </DialogDescription>
+        </DialogHeader>
         <div className="flex flex-col max-h-[90dvh] md:max-h-[85vh] h-full relative">
           {/* Minimal Close for Screen only */}
           <div className="flex justify-end p-2 no-print absolute right-0 top-0 z-10 w-full pointer-events-none">

@@ -1,4 +1,4 @@
-import { useEffect, useState, createContext, useContext } from 'react';
+import React, { useEffect, useState, createContext, useContext } from 'react';
 import { supabase } from '../lib/supabase';
 import { User, Session } from '@supabase/supabase-js';
 
@@ -36,14 +36,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchingRef = React.useRef<string | null>(null);
+
+  const fetchProfile = async (userId: string, retryCount = 0) => {
+    // Prevent duplicate parallel fetches for the same ID
+    if (fetchingRef.current === userId && retryCount === 0) return;
+    fetchingRef.current = userId;
+
     try {
-      console.log('[useAuth] Fetching profile for:', userId);
-      // Use a standard select to avoid potential issues with maybeSingle hanging
-      const { data, error } = await supabase
+      console.log(`[useAuth] Fetching profile (attempt ${retryCount + 1}) for:`, userId);
+      
+      // Add a safety timeout
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Profile fetch timeout')), 15000)
+      );
+
+      const fetchPromise = supabase
         .from('profiles')
         .select('*')
         .eq('id', userId);
+
+      const { data, error }: any = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (error) {
         console.error('[useAuth] Profile DB error:', error);
@@ -59,22 +72,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setProfile(profileData);
       } else {
         console.log('[useAuth] No profile record found for this user.');
+        setProfile(null);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[useAuth] Uncaught profile fetch error:', err);
+      
+      // Retry once if it was a timeout
+      if (err.message === 'Profile fetch timeout' && retryCount < 1) {
+        console.log('[useAuth] Retrying profile fetch...');
+        fetchingRef.current = null; // Reset ref to allow retry
+        return fetchProfile(userId, retryCount + 1);
+      }
     } finally {
-      if (userId && !profile) {
-        // We have a user but no profile record
+      if (retryCount === 0 || fetchingRef.current === userId) {
         setLoading(false);
-      } else {
-        setLoading(false);
+        fetchingRef.current = null;
       }
     }
   };
 
   useEffect(() => {
+    let mounted = true;
+
     // 1. Initial check
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
       const currentUser = session?.user ?? null;
       setSession(session);
       setUser(currentUser);
@@ -88,24 +110,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     // 2. State change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
       console.log('[useAuth] Auth Event:', event);
-      const currentUser = session?.user ?? null;
       
+      const currentUser = session?.user ?? null;
       setSession(session);
       setUser(currentUser);
       
       if (currentUser) {
-        // If login/token refresh happens, we must fetch the profile
-        // but only if we don't already have the correct profile
-        setLoading(true);
-        fetchProfile(currentUser.id);
+        // If profile is already loaded for this user, don't set loading to true
+        if (!profile || profile.id !== currentUser.id) {
+          setLoading(true);
+          fetchProfile(currentUser.id);
+        }
       } else {
         setProfile(null);
         setLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {

@@ -11,6 +11,22 @@ import { ErrorState } from "../components/ErrorState";
 import { farmerPaymentsService, FarmerDebtSummary, FarmerPayment } from "../services/farmerPaymentsService";
 import { ArrowLeft, Phone, MapPin, Package, TrendingUp, CreditCard, ShoppingCart, Loader2, Trash2, History } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { useFarmerById, usePurchasesByFarmerId, useAdvancesByFarmerId, useDebtPaymentsByFarmerId } from "../hooks/queries/useFarmerDetail";
+import { useDebtSummary } from "../hooks/queries/useDebtSummary";
+import { getEffectiveAdminId } from "../hooks/useAuth";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../components/ui/alert-dialog";
+import { toast } from "sonner";
 
 function formatUGX(v: number) { return `UGX ${Math.round(v).toLocaleString()}`; }
 
@@ -30,62 +46,66 @@ export default function FarmerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const queryClient = useQueryClient();
+  const adminId = getEffectiveAdminId(profile);
   const [activeTab, setActiveTab] = useState("purchases");
 
-  const [farmer, setFarmer] = useState<Farmer | null>(null);
-  const [farmerPurchases, setFarmerPurchases] = useState<Purchase[]>([]);
-  const [farmerAdvances, setFarmerAdvances] = useState<Advance[]>([]);
-  const [debtSummary, setDebtSummary] = useState<FarmerDebtSummary | null>(null);
-  const [debtPayments, setDebtPayments] = useState<FarmerPayment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: farmer, isLoading: farmerLoading, error: farmerError, refetch: refetchFarmer } = useFarmerById(id);
+  const { data: farmerPurchases = [], isLoading: purchasesLoading } = usePurchasesByFarmerId(id);
+  const { data: farmerAdvances = [], isLoading: advancesLoading } = useAdvancesByFarmerId(id);
+  const { data: debtSummaries = [] } = useDebtSummary(adminId);
+  const { data: debtPayments = [], isLoading: paymentsLoading } = useDebtPaymentsByFarmerId(id);
+
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const loading = (farmerLoading || purchasesLoading || advancesLoading || paymentsLoading) && !farmer;
+  const error = (farmerError as any)?.message || null;
 
   const handleDelete = async () => {
     if (!profile || (profile.role !== 'Admin' && profile.role !== 'Super Admin')) return;
-    if (window.confirm("Are you sure you want to deactivate this client? They will no longer appear in your active lists, but their historical records will be preserved. This action can be undone by an administrator later.")) {
-      try {
-        setIsDeleting(true);
-        await farmersService.delete(id!);
-        navigate("/farmers");
-      } catch (err: any) {
-        alert("Failed to delete client: " + err.message);
-        setIsDeleting(false);
-      }
-    }
-  };
-
-  const fetchData = async () => {
-    if (!id) return;
     try {
-      setLoading(true);
-      setError(null);
-      const [farmerData, purchasesData, advancesData, summaries] = await Promise.all([
-        farmersService.getById(id),
-        purchasesService.getByFarmerId(id),
-        advancesService.getByFarmerId(id),
-        farmerPaymentsService.getDebtsSummary(profile?.role === 'Super Admin' ? 'SUPER_ADMIN' : (profile?.admin_id || profile?.id || ''))
-      ]);
-      const summary = summaries.find(s => String(s.farmer_id) === String(id));
-      setFarmer(farmerData);
-      setFarmerPurchases(purchasesData);
-      setFarmerAdvances(advancesData);
-      setDebtSummary(summary || null);
-
-      if (id) {
-        const payments = await farmerPaymentsService.getPaymentsByFarmer(id);
-        setDebtPayments(payments);
-      }
+      setIsDeleting(true);
+      await farmersService.delete(id!);
+      
+      // Invalidate queries to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['farmers'] });
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      
+      toast.success("Client deactivated successfully");
+      navigate("/farmers");
     } catch (err: any) {
-      setError(err.message || "Failed to load farmer data");
-    } finally {
-      setLoading(false);
+      toast.error("Failed to deactivate client: " + err.message);
+      setIsDeleting(false);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [id]);
+  const handleDeletePurchase = async (purchaseId: string) => {
+    if (!profile || (profile.role !== 'Admin' && profile.role !== 'Super Admin')) return;
+    if (!window.confirm("Are you sure you want to delete this purchase? This will also REVERT any associated advance deductions.")) return;
+    
+    try {
+      setDeletingId(purchaseId);
+      await purchasesService.delete(purchaseId);
+      
+      // Invalidate queries
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      queryClient.invalidateQueries({ queryKey: ['debt-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['farmer'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      
+      toast.success("Purchase deleted and deductions reverted");
+    } catch (err: any) {
+      toast.error("Failed to delete purchase: " + err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const debtSummary = debtSummaries.find(s => String(s.farmer_id) === String(id)) || null;
 
   if (loading) {
     return (
@@ -104,7 +124,7 @@ export default function FarmerDetail() {
         <ErrorState
           title="Couldn't Load Client"
           message={error || "Client not found"}
-          onRetry={fetchData}
+          onRetry={() => refetchFarmer()}
         />
       </Layout>
     );
@@ -148,15 +168,36 @@ export default function FarmerDetail() {
         </div>
         <div className="ml-auto flex gap-2">
           {(profile?.role === 'Admin' || profile?.role === 'Super Admin') && (
-            <button
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl hover:opacity-90 transition-all disabled:opacity-50"
-              style={{ backgroundColor: "#DC2626", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600 }}
-            >
-              {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-              Delete Client
-            </button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={isDeleting}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl hover:opacity-90 transition-all disabled:opacity-50"
+                  style={{ backgroundColor: "#DC2626", color: "#fff", fontFamily: "Inter, sans-serif", fontSize: "13px", fontWeight: 600 }}
+                >
+                  {isDeleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  Delete Client
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="rounded-2xl border-none shadow-2xl">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="text-xl font-bold text-gray-900">Deactivate Client?</AlertDialogTitle>
+                  <AlertDialogDescription className="text-gray-500 text-sm leading-relaxed">
+                    Are you sure you want to deactivate <strong>{farmer.name}</strong>? 
+                    They will no longer appear in your active lists, but their historical records (purchases, advances) will be preserved for auditing.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter className="mt-4">
+                  <AlertDialogCancel className="rounded-xl border-gray-200 font-semibold">Cancel</AlertDialogCancel>
+                  <AlertDialogAction 
+                    onClick={handleDelete}
+                    className="bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold px-6"
+                  >
+                    Confirm Deactivation
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
           <button
             onClick={() => navigate(`/purchases/new?farmerId=${farmer.id}`)}
@@ -250,7 +291,7 @@ export default function FarmerDetail() {
               <table className="w-full">
                 <thead>
                   <tr style={{ backgroundColor: "#F8FAFC" }}>
-                    {["Serial Number", "Date", "Type", "Gross Wt", "Moisture", "Deduction", "Payable Wt", "Total Amount", "Adv Ded.", "Cash Paid", "Status"].map(h => (
+                    {["Serial Number", "Date", "Type", "Gross Wt", "Moisture", "Deduction", "Payable Wt", "Total Amount", "Adv Ded.", "Cash Paid", "Status", "Actions"].map(h => (
                       <th key={h} className="px-4 py-3 text-left whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</th>
                     ))}
                   </tr>
@@ -317,6 +358,16 @@ export default function FarmerDetail() {
                             <span className="text-[9px] font-black text-green-700 bg-green-50 px-2 py-0.5 rounded-full uppercase">SETTLED</span> :
                             <span className="text-[9px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-full uppercase">OWED: {formatUGX(remaining)}</span>;
                         })()}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <button
+                          onClick={() => handleDeletePurchase(p.id)}
+                          disabled={deletingId === p.id}
+                          className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          title="Delete Purchase"
+                        >
+                          {deletingId === p.id ? <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div> : <Trash2 size={14} />}
+                        </button>
                       </td>
                     </tr>
                   )) : (
@@ -389,6 +440,17 @@ export default function FarmerDetail() {
                         <div style={{ fontFamily: "Inter", fontSize: "11px", color: "#DC2626", marginTop: "2px", fontWeight: 500 }}>Ded: −{formatUGX(p.advance_deducted)}</div>
                       )}
                     </div>
+                  </div>
+                  
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => handleDeletePurchase(p.id)}
+                      disabled={deletingId === p.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-red-600 bg-red-50 hover:bg-red-100 transition-colors text-[11px] font-semibold disabled:opacity-50"
+                    >
+                      {deletingId === p.id ? <div className="w-3 h-3 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div> : <Trash2 size={12} />}
+                      Delete Purchase
+                    </button>
                   </div>
                 </div>
               )) : (

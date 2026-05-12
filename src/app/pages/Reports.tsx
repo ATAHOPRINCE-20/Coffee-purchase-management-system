@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useReactToPrint } from 'react-to-print';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Legend
@@ -6,7 +7,7 @@ import {
 import { Layout } from "../components/Layout";
 import { 
   BarChart3, TrendingUp, Download, Calendar, Filter, 
-  ArrowUpRight, ArrowDownRight, Coffee, Loader2 
+  ArrowUpRight, ArrowDownRight, Coffee, Loader2, Printer
 } from "lucide-react";
 import { purchasesService, Purchase } from "../services/purchasesService";
 import { advancesService, Advance } from "../services/advancesService";
@@ -14,6 +15,15 @@ import { seasonsService, Season } from "../services/seasonsService";
 import { agentAdvancesService, AgentAdvance } from "../services/agentAdvancesService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { salesService, Sale } from "../services/salesService";
+import { useSeasons } from "../hooks/queries/useSeasons";
+import { usePurchases } from "../hooks/queries/usePurchases";
+import { useAdvances } from "../hooks/queries/useAdvances";
+import { useSales } from "../hooks/queries/useSales";
+import { useAgentAdvances } from "../hooks/queries/useAgentAdvances";
+import { useCompanyProfile } from "../hooks/queries/useCompanyProfile";
+import { useSync } from "../contexts/SyncContext";
+import { useQueryClient } from "@tanstack/react-query";
+import { SeasonalReportPrint } from "../components/pos/SeasonalReportPrint";
 
 const formatUGX = (v: number) => `UGX ${Math.round(v).toLocaleString()}`;
 
@@ -38,9 +48,19 @@ function ReportStat({ label, value, sub, icon: Icon, color }: { label: string; v
     </div>
   );
 }
-
 export default function Reports() {
-  const [loading, setLoading] = useState(true);
+  const { profile } = useAuth();
+  const { isOnline } = useSync();
+  const queryClient = useQueryClient();
+  const adminId = getEffectiveAdminId(profile);
+
+  const { data: seasons = [], isLoading: seasonsLoading } = useSeasons(adminId);
+  const { data: allPurchases = [], isLoading: purchasesLoading } = usePurchases(adminId);
+  const { data: allAdvances = [], isLoading: advancesLoading } = useAdvances(adminId);
+  const { data: allSales = [], isLoading: salesLoading } = useSales(adminId);
+  const { data: allAgentAdvances = [], isLoading: agentAdvancesLoading } = useAgentAdvances(adminId);
+  const { data: company = null } = useCompanyProfile(adminId);
+
   const [season, setSeason] = useState<Season | null>(null);
   const [monthlyTrend, setMonthlyTrend] = useState<any[]>([]);
   const [stats, setStats] = useState({
@@ -49,92 +69,147 @@ export default function Reports() {
     totalAdvances: 0,
     batchWeight: 0,
     ownPurchasesCost: 0,
-    agentCapitalCost: 0
+    agentCapitalCost: 0,
+    byType: {
+      Kiboko: { weight: 0, value: 0, batchWeight: 0 },
+      Red: { weight: 0, value: 0, batchWeight: 0 },
+      Kase: { weight: 0, value: 0, batchWeight: 0 }
+    }
   });
 
-  const { profile } = useAuth();
+  const [isExporting, setIsExporting] = useState(false);
+
+  const printRef = useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `Seasonal_Report_${new Date().toISOString().split('T')[0]}`,
+  });
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const adminId = getEffectiveAdminId(profile);
-        if (!adminId || !profile) return;
+    if (!profile || !seasons || !allPurchases || !allAdvances || !allSales || !allAgentAdvances) return;
+    
+    const activeSeason = seasons.find(s => s.is_active) || null;
+    setSeason(activeSeason);
 
-        const [activeSeason, allPurchases, allAdvances, allSales, allAgentAdvances] = await Promise.all([
-          seasonsService.getActive(adminId),
-          purchasesService.getAll(adminId),
-          advancesService.getAll(adminId),
-          salesService.getAll(adminId),
-          agentAdvancesService.getAllForAdmin(adminId)
-        ]);
+    const totalWeight = allPurchases.reduce((s: number, p: any) => s + (p.payable_weight || 0), 0);
+    const totalValue = allPurchases.reduce((s: number, p: any) => s + (p.total_amount || 0), 0);
+    const totalAdvances = allAdvances.reduce((s: number, a: any) => s + (a.amount || 0), 0);
+    
+    const ownPurchasesCost = allPurchases
+      .filter((p: any) => p.field_agent_id === profile.id)
+      .reduce((s: number, p: any) => s + (p.total_amount || 0), 0);
+    
+    const agentCapitalCost = allAgentAdvances.reduce((s: number, a: any) => s + (a.amount || 0), 0);
 
-        setSeason(activeSeason);
+    const latestSale = [...allSales].sort((a: Sale, b: Sale) => 
+      new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime()
+    )[0];
+    const lastSaleTime = latestSale?.created_at || '1970-01-01T00:00:00Z';
+    const batchWeight = allPurchases
+      .filter((p: any) => new Date(p.created_at || p.date).getTime() > new Date(lastSaleTime).getTime())
+      .reduce((s: number, p: any) => s + (p.payable_weight || 0), 0);
 
-        const totalWeight = allPurchases.reduce((s: number, p: Purchase) => s + (p.payable_weight || 0), 0);
-        const totalValue = allPurchases.reduce((s: number, p: Purchase) => s + (p.total_amount || 0), 0);
-        const totalAdvances = allAdvances.reduce((s: number, a: Advance) => s + (a.amount || 0), 0);
-        
-        // Breakdown calculations
-        const ownPurchasesCost = allPurchases
-          .filter((p: Purchase) => p.field_agent_id === profile.id)
-          .reduce((s: number, p: Purchase) => s + (p.total_amount || 0), 0);
-        
-        const agentCapitalCost = allAgentAdvances.reduce((s: number, a: AgentAdvance) => s + (a.amount || 0), 0);
-
-        // Batch calculation
-        const latestSale = allSales.sort((a: Sale, b: Sale) => 
-          new Date(b.created_at || b.date).getTime() - new Date(a.created_at || a.date).getTime()
-        )[0];
-        const lastSaleTime = latestSale?.created_at || '1970-01-01T00:00:00Z';
-        const batchWeight = allPurchases
-          .filter((p: Purchase) => new Date(p.created_at || p.date).getTime() > new Date(lastSaleTime).getTime())
-          .reduce((s: number, p: Purchase) => s + (p.payable_weight || 0), 0);
-
-        setStats({ totalWeight, totalValue, totalAdvances, batchWeight, ownPurchasesCost, agentCapitalCost });
-
-        // Trend calculation
-        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const trendMap: Record<string, any> = {};
-        
-        // Last 6 months
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date();
-          d.setMonth(d.getMonth() - i);
-          const mKey = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-          trendMap[mKey] = { weight: 0, value: 0 };
-        }
-
-        allPurchases.forEach((p: any) => {
-          const mKey = p.date.substring(0, 7);
-          if (trendMap[mKey]) {
-            trendMap[mKey].weight += (p.payable_weight || 0);
-            trendMap[mKey].value += (p.total_amount || 0);
-          }
-        });
-
-        const trendData = Object.entries(trendMap).sort().map(([key, data]: any) => {
-          const [y, m] = key.split('-');
-          return { 
-            month: months[parseInt(m) - 1], 
-            weight: data.weight,
-            value: data.value
-          };
-        });
-
-        setMonthlyTrend(trendData);
-      } catch (err) {
-        console.error("Error fetching report data:", err);
-      } finally {
-        setLoading(false);
-      }
+    const byType = {
+      Kiboko: { weight: 0, value: 0, batchWeight: 0 },
+      Red: { weight: 0, value: 0, batchWeight: 0 },
+      Kase: { weight: 0, value: 0, batchWeight: 0 }
     };
-    fetchData();
-  }, []);
+
+    allPurchases.forEach((p: any) => {
+      const type = p.coffee_type as keyof typeof byType;
+      if (byType[type]) {
+        byType[type].weight += (p.payable_weight || 0);
+        byType[type].value += (p.total_amount || 0);
+        
+        if (new Date(p.created_at || p.date).getTime() > new Date(lastSaleTime).getTime()) {
+          byType[type].batchWeight += (p.payable_weight || 0);
+        }
+      }
+    });
+
+    setStats({ totalWeight, totalValue, totalAdvances, batchWeight, ownPurchasesCost, agentCapitalCost, byType });
+
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const trendMap: Record<string, any> = {};
+    
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const mKey = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+      trendMap[mKey] = { weight: 0, value: 0 };
+    }
+
+    allPurchases.forEach((p: any) => {
+      const mKey = p.date.substring(0, 7);
+      if (trendMap[mKey]) {
+        trendMap[mKey].weight += (p.payable_weight || 0);
+        trendMap[mKey].value += (p.total_amount || 0);
+      }
+    });
+
+    const trendData = Object.entries(trendMap).sort().map(([key, data]: any) => {
+      const [y, m] = key.split('-');
+      return { 
+        month: months[parseInt(m) - 1], 
+        weight: data.weight,
+        value: data.value
+      };
+    });
+
+    setMonthlyTrend(trendData);
+  }, [seasons, allPurchases, allAdvances, allSales, allAgentAdvances, profile]);
+
+  const loading = (seasonsLoading || purchasesLoading || advancesLoading || salesLoading || agentAdvancesLoading) && allPurchases.length === 0;
 
   const handleExport = () => {
-    // Basic CSV export logic placeholder
-    alert("Exporting data to CSV...");
+    setIsExporting(true);
+    
+    // Use setTimeout to allow the UI to update (show loading state) before heavy CSV processing
+    setTimeout(() => {
+      try {
+        const csvRows = [];
+        // Header
+        csvRows.push(['Seasonal Performance Report']);
+        csvRows.push([`Company: ${company?.name || 'CPMS'}`]);
+        csvRows.push([`Season: ${season?.name || 'N/A'}`]);
+        csvRows.push([`Generated: ${new Date().toLocaleString()}`]);
+        csvRows.push(['']);
+
+        csvRows.push(['Category', 'Weight (kg)', 'Total Value (UGX)']);
+        
+        // Type Breakdown
+        Object.entries(stats.byType).forEach(([type, data]: [string, any]) => {
+          csvRows.push([`${type} Coffee`, data.weight, data.value]);
+        });
+        
+        csvRows.push(['']);
+        csvRows.push(['Financial Aggregates', '', 'Value (UGX)']);
+        csvRows.push(['Direct Own Purchases', '', stats.ownPurchasesCost]);
+        csvRows.push(['Agent Capital Issued', '', stats.agentCapitalCost]);
+        csvRows.push(['Farmer Advances', '', stats.totalAdvances]);
+        
+        csvRows.push(['']);
+        csvRows.push(['Monthly Trend', 'Volume (kg)', 'Value (UGX)']);
+        monthlyTrend.forEach(item => {
+          csvRows.push([item.month, item.weight, item.value]);
+        });
+
+        const csvString = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        a.setAttribute('download', `Seasonal_Report_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err) {
+        console.error("Export failed:", err);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 100);
   };
 
   if (loading) {
@@ -156,31 +231,69 @@ export default function Reports() {
           <p className="text-sm text-gray-500 mt-1" style={{ fontFamily: "Inter, sans-serif" }}>Seasonal performance overview and data insights</p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-            <Calendar size={16} />
-            This Season
+          <button 
+            onClick={() => handlePrint()}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <Printer size={16} />
+            Print Report
           </button>
           <button 
             onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#14532D] text-sm font-semibold text-white hover:opacity-90 transition-all shadow-md"
+            disabled={isExporting}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#14532D] text-sm font-semibold text-white hover:opacity-90 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download size={16} />
-            Export CSV
+            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {isExporting ? "Exporting..." : "Export CSV"}
           </button>
         </div>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-5">
-        <ReportStat label="Seasonal Volume" value={`${stats.totalWeight.toLocaleString()} kg`} sub={`${season?.name || "Active Session"}`} icon={Coffee} color="#6F4E37" />
-        <ReportStat label="Batch Volume" value={`${stats.batchWeight.toLocaleString()} kg`} sub="coffee since last sale" icon={Filter} color="#14532D" />
-        <ReportStat label="Total Volume Cost" value={formatUGX(stats.totalValue)} sub="Total spent on coffee" icon={TrendingUp} color="#16A34A" />
+      {/* Hidden Print Component */}
+      <div className="hidden">
+        <SeasonalReportPrint ref={printRef} stats={stats} season={season} company={company} monthlyTrend={monthlyTrend} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-        <ReportStat label="Direct Own Purchases" value={formatUGX(stats.ownPurchasesCost)} sub="Money used personally" icon={TrendingUp} color="#14532D" />
-        <ReportStat label="Agent Capital Issued" value={formatUGX(stats.agentCapitalCost)} sub="Money given to agents" icon={TrendingUp} color="#16A34A" />
-        <ReportStat label="Farmer Advances" value={formatUGX(stats.totalAdvances)} sub="issued this season" icon={BarChart3} color="#F59E0B" />
+      {/* Type Specific Summaries */}
+      {(['Kiboko', 'Red', 'Kase'] as const).map(type => (
+        <div key={type} className="mb-10">
+          <div className="flex items-center gap-2 mb-4">
+            <div className={`w-2 h-6 rounded-full ${type === 'Kiboko' ? 'bg-green-600' : type === 'Red' ? 'bg-red-600' : 'bg-purple-600'}`} />
+            <h2 className="text-lg font-bold text-gray-800">{type} Coffee Summary</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <ReportStat 
+              label={`${type} Seasonal Volume`} 
+              value={`${stats.byType[type].weight.toLocaleString()} kg`} 
+              sub="Total collected this season" 
+              icon={Coffee} 
+              color={type === 'Kiboko' ? '#14532D' : type === 'Red' ? '#991B1B' : '#701A75'} 
+            />
+            <ReportStat 
+              label={`${type} Batch Volume`} 
+              value={`${stats.byType[type].batchWeight.toLocaleString()} kg`} 
+              sub="Since last sale" 
+              icon={Filter} 
+              color={type === 'Kiboko' ? '#14532D' : type === 'Red' ? '#991B1B' : '#701A75'} 
+            />
+            <ReportStat 
+              label={`${type} Total Cost`} 
+              value={formatUGX(stats.byType[type].value)} 
+              sub="Total spent on this type" 
+              icon={TrendingUp} 
+              color={type === 'Kiboko' ? '#16A34A' : type === 'Red' ? '#DC2626' : '#A21CAF'} 
+            />
+          </div>
+        </div>
+      ))}
+
+      <div className="border-t border-gray-100 my-8 pt-8">
+        <h2 className="text-lg font-bold text-gray-800 mb-6">Aggregated Financials</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <ReportStat label="Direct Own Purchases" value={formatUGX(stats.ownPurchasesCost)} sub="Money used personally" icon={TrendingUp} color="#14532D" />
+          <ReportStat label="Agent Capital Issued" value={formatUGX(stats.agentCapitalCost)} sub="Money given to agents" icon={TrendingUp} color="#16A34A" />
+          <ReportStat label="Farmer Advances" value={formatUGX(stats.totalAdvances)} sub="issued this season" icon={BarChart3} color="#F59E0B" />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">

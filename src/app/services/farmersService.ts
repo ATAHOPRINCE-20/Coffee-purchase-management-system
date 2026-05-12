@@ -17,6 +17,7 @@ export const farmersService = {
     let query = supabase
       .from('farmers')
       .select('*, profiles:admin_id(full_name)')
+      .is('deleted_at', null)
       .order('name');
       
     // RLS handles visibility
@@ -31,6 +32,7 @@ export const farmersService = {
       .from('farmers')
       .select('*, profiles:admin_id(full_name)')
       .eq('id', id)
+      .is('deleted_at', null)
       .single();
     
     if (error) throw error;

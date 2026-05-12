@@ -3,8 +3,21 @@ import { get, set } from 'idb-keyval';
 import { supabase } from '../lib/supabase';
 
 interface PendingAction {
-  id: string; // Unique ID for the action itself
-  type: 'CREATE_PURCHASE' | 'CREATE_FARMER' | 'CREATE_ADVANCE' | 'UPDATE_ADVANCE' | 'UPDATE_FARMER' | 'CREATE_PURCHASE_ATOMIC'; // Extendable
+  id: string; 
+  type: 
+    | 'CREATE_PURCHASE' 
+    | 'CREATE_FARMER' 
+    | 'CREATE_ADVANCE' 
+    | 'UPDATE_ADVANCE' 
+    | 'UPDATE_FARMER' 
+    | 'CREATE_PURCHASE_ATOMIC'
+    | 'CREATE_PRICE'
+    | 'CREATE_EXPENSE'
+    | 'CREATE_SALE'
+    | 'UPDATE_SEASON'
+    | 'CREATE_SEASON'
+    | 'DELETE_ITEM'
+    | 'CREATE_FARMER_PAYMENT';
   payload: any;
   timestamp: number;
 }
@@ -74,6 +87,40 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       case 'CREATE_FARMER':
         const { error: fError } = await supabase.from('farmers').insert(action.payload);
         if (fError) throw fError;
+        break;
+      case 'CREATE_ADVANCE':
+        const { error: advError } = await supabase.from('advances').insert(action.payload);
+        if (advError) throw advError;
+        break;
+      case 'CREATE_PRICE':
+        const { error: priceError } = await supabase.from('buying_prices').insert(action.payload);
+        if (priceError) throw priceError;
+        break;
+      case 'CREATE_EXPENSE':
+        const { error: expError } = await supabase.from('expenses').insert(action.payload);
+        if (expError) throw expError;
+        break;
+      case 'CREATE_SALE':
+        const { error: saleError } = await supabase.from('sales').insert(action.payload);
+        if (saleError) throw saleError;
+        break;
+      case 'CREATE_SEASON':
+        const { error: sError } = await supabase.from('seasons').insert(action.payload);
+        if (sError) throw sError;
+        break;
+      case 'UPDATE_SEASON':
+        const { id: sId, ...sUpdateData } = action.payload;
+        const { error: usError } = await supabase.from('seasons').update(sUpdateData).eq('id', sId);
+        if (usError) throw usError;
+        break;
+      case 'CREATE_FARMER_PAYMENT':
+        const { error: fpError } = await supabase.from('farmer_payments').insert(action.payload);
+        if (fpError) throw fpError;
+        break;
+      case 'DELETE_ITEM':
+        const { table, id: delId } = action.payload;
+        const { error: delError } = await supabase.from(table).delete().eq('id', delId);
+        if (delError) throw delError;
         break;
       case 'UPDATE_ADVANCE':
         const { id, ...updateData } = action.payload;

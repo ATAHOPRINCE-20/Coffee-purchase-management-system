@@ -26,7 +26,8 @@ export const purchasesService = {
   async getAll(adminId: string, limit?: number, onlyDirect?: boolean) {
     let query = supabase
       .from('purchases')
-      .select('*, farmers(name, phone, village), field_agent:field_agent_id(full_name), admin:admin_id(full_name)')
+      .select('*, farmers!inner(name, phone, village, deleted_at), field_agent:field_agent_id(full_name), admin:admin_id(full_name)')
+      .is('farmers.deleted_at', null)
       .order('date', { ascending: false });
       
     if (onlyDirect) {
@@ -65,8 +66,9 @@ export const purchasesService = {
   async getForAgent(agentId: string) {
     const { data, error } = await supabase
       .from('purchases')
-      .select('*, farmers(name)')
+      .select('*, farmers!inner(name, deleted_at)')
       .eq('field_agent_id', agentId)
+      .is('farmers.deleted_at', null)
       .order('date', { ascending: false });
 
     if (error) throw error;
@@ -136,19 +138,22 @@ export const purchasesService = {
     // We execute multiple parallel count/sum queries for speed
     let todayQuery = supabase
       .from('purchases')
-      .select('payable_weight, total_amount, coffee_type')
+      .select('payable_weight, total_amount, coffee_type, farmers!inner(deleted_at)')
+      .is('farmers.deleted_at', null)
       .eq('date', date);
 
     let monthlyQuery = supabase
       .from('purchases')
-      .select('payable_weight, total_amount, coffee_type')
+      .select('payable_weight, total_amount, coffee_type, farmers!inner(deleted_at)')
+      .is('farmers.deleted_at', null)
       .gte('date', date.substring(0, 7) + '-01');
 
     let seasonalQuery = null;
     if (seasonId) {
       seasonalQuery = supabase
         .from('purchases')
-        .select('payable_weight, total_amount, coffee_type')
+        .select('payable_weight, total_amount, coffee_type, farmers!inner(deleted_at)')
+        .is('farmers.deleted_at', null)
         .eq('season_id', seasonId);
     }
 
@@ -182,42 +187,42 @@ export const purchasesService = {
         weight: todayData?.reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
         value: todayData?.reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         types: {
-          Kiboko: todayData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
-          Red: todayData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
-          Kase: todayData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Kiboko: (todayData || []).filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Red: (todayData || []).filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Kase: (todayData || []).filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
         },
         type_values: {
-          Kiboko: todayData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
-          Red: todayData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
-          Kase: todayData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kiboko: (todayData || []).filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Red: (todayData || []).filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kase: (todayData || []).filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         }
       },
       monthly: {
         weight: monthlyData?.reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
         value: monthlyData?.reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         types: {
-          Kiboko: monthlyData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
-          Red: monthlyData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
-          Kase: monthlyData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Kiboko: (monthlyData || []).filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Red: (monthlyData || []).filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Kase: (monthlyData || []).filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
         },
         type_values: {
-          Kiboko: monthlyData?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
-          Red: monthlyData?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
-          Kase: monthlyData?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kiboko: (monthlyData || []).filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Red: (monthlyData || []).filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kase: (monthlyData || []).filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         }
       },
       seasonal: {
         weight: seasonalResult.data?.reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
         value: seasonalResult.data?.reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         types: {
-          Kiboko: seasonalResult.data?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
-          Red: seasonalResult.data?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
-          Kase: seasonalResult.data?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Kiboko: (seasonalResult.data || []).filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Red: (seasonalResult.data || []).filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
+          Kase: (seasonalResult.data || []).filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.payable_weight || 0), 0) || 0,
         },
         type_values: {
-          Kiboko: seasonalResult.data?.filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
-          Red: seasonalResult.data?.filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
-          Kase: seasonalResult.data?.filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kiboko: (seasonalResult.data || []).filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Red: (seasonalResult.data || []).filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
+          Kase: (seasonalResult.data || []).filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
         }
       }
     };
@@ -241,8 +246,9 @@ export const purchasesService = {
 
     const { data, error } = await supabase
       .from('purchases')
-      .select('farmer_id, payable_weight, farmers(name)')
-      .eq('season_id', activeSeason.id);
+      .select('farmer_id, payable_weight, farmers!inner(name, deleted_at)')
+      .eq('season_id', activeSeason.id)
+      .is('farmers.deleted_at', null);
     if (error) throw error;
     if (!data || data.length === 0) return [];
 
@@ -319,5 +325,58 @@ export const purchasesService = {
     });
     
     return Object.values(performance).sort((a, b) => b.seasonal - a.seasonal);
+  },
+
+  async delete(id: string) {
+    // 1. Fetch the purchase to check for deductions
+    const { data: purchase, error: fetchErr } = await supabase
+      .from('purchases')
+      .select('farmer_id, advance_deducted, season_id')
+      .eq('id', id)
+      .single();
+    
+    if (fetchErr) throw fetchErr;
+
+    // 2. If there was a deduction, revert it in the advances table
+    if (purchase && purchase.advance_deducted > 0) {
+      // Find the most recent advance for this farmer that has a deduction
+      const { data: advances, error: advErr } = await supabase
+        .from('advances')
+        .select('*')
+        .eq('farmer_id', purchase.farmer_id)
+        .eq('season_id', purchase.season_id)
+        .gt('deducted', 0)
+        .order('issue_date', { ascending: false });
+
+      if (advErr) throw advErr;
+
+      if (advances && advances.length > 0) {
+        // We refund the amount to the most recent advance that was likely involved
+        const adv = advances[0];
+        const newDeducted = Math.max(0, (adv.deducted || 0) - purchase.advance_deducted);
+        const newRemaining = (adv.amount || 0) - newDeducted;
+        const newStatus = newRemaining > 0 ? 'Active' : 'Cleared';
+
+        const { error: updateErr } = await supabase
+          .from('advances')
+          .update({ 
+            deducted: newDeducted, 
+            remaining: newRemaining,
+            status: newStatus
+          })
+          .eq('id', adv.id);
+        
+        if (updateErr) throw updateErr;
+      }
+    }
+
+    // 3. Delete the purchase record
+    const { error: delErr } = await supabase
+      .from('purchases')
+      .delete()
+      .eq('id', id);
+    
+    if (delErr) throw delErr;
+    return true;
   }
 };

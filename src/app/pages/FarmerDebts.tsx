@@ -1,27 +1,138 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useReactToPrint } from 'react-to-print';
 import { useNavigate } from "react-router";
 import { Layout } from "../components/Layout";
 import { 
   History, Wallet, Users, ArrowUpRight, 
   Clock, CheckCircle2, AlertCircle, Loader2,
   DollarSign, Search, Calendar, ChevronRight,
-  Filter, Download, MoreHorizontal, Package
+  Filter, Download, MoreHorizontal, Package, Printer
 } from "lucide-react";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { farmerPaymentsService, FarmerDebtSummary, FarmerPayment } from "../services/farmerPaymentsService";
 import { getEATDateString } from "../utils/dateUtils";
+import { useFarmerDebts, useFarmerPaymentHistory } from "../hooks/queries/useFarmerDebts";
+import { useCompanyProfile } from "../hooks/queries/useCompanyProfile";
+import { useSync } from "../contexts/SyncContext";
+import { useQueryClient } from "@tanstack/react-query";
+import { FarmerDebtsPrint } from "../components/pos/FarmerDebtsPrint";
 
 const formatUGX = (v: number) => `UGX ${Math.round(v).toLocaleString()}`;
 
+const MobileDebtCard = ({ 
+  debt, 
+  onRecordPayment, 
+  onViewHistory 
+}: { 
+  debt: FarmerDebtSummary; 
+  onRecordPayment: () => void; 
+  onViewHistory: () => void;
+}) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="p-4 transition-all hover:bg-gray-50/30">
+      {/* Header - Always Visible, Clickable to Expand */}
+      <div 
+        className="flex items-center justify-between cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-xs uppercase tracking-tight">
+            {debt.farmer_name.slice(0, 2)}
+          </div>
+          <div>
+            <div className="text-sm font-bold text-gray-900">{debt.farmer_name}</div>
+            <div className="text-[10px] text-gray-500">{debt.village}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="text-[10px] font-bold text-gray-400 uppercase">Remaining</div>
+            <div className="text-sm font-black text-red-600">{formatUGX(debt.remaining_debt)}</div>
+          </div>
+          <div className={`text-gray-300 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>
+            <ChevronRight size={16} />
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded Content */}
+      {expanded && (
+        <div className="mt-4 pt-4 border-t border-gray-50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="grid grid-cols-2 gap-3 bg-gray-50/50 p-3 rounded-xl border border-gray-50">
+            <div>
+              <div className="text-[9px] font-bold text-gray-400 uppercase">Total Value</div>
+              <div className="text-xs font-bold text-gray-700">{formatUGX(debt.total_purchase_value)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[9px] font-bold text-gray-400 uppercase">Paid So Far</div>
+              <div className="text-xs font-bold text-green-600">
+                {formatUGX(debt.total_cash_paid_at_purchase + debt.total_subsequent_payments + debt.total_advance_deducted)}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onRecordPayment();
+              }}
+              className="flex-1 py-2.5 bg-green-700 text-white rounded-xl text-xs font-bold uppercase tracking-wide hover:bg-green-800 transition-colors shadow-sm flex items-center justify-center gap-2"
+            >
+              <Wallet size={14} />
+              Record Payment
+            </button>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewHistory();
+              }}
+              className="p-2.5 bg-white border border-gray-200 rounded-xl text-gray-500 hover:bg-gray-50 transition-all"
+            >
+              <History size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function FarmerDebts() {
   const { profile } = useAuth();
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [debts, setDebts] = useState<FarmerDebtSummary[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { isOnline, addToSyncQueue } = useSync();
+  const queryClient = useQueryClient();
+  const adminId = getEffectiveAdminId(profile);
+
+  const { data: debts, isLoading: debtsLoading, error: debtsError } = useFarmerDebts(adminId);
+  const { data: company } = useCompanyProfile(adminId);
+  const [selectedFarmerId, setSelectedFarmerId] = useState<string | null>(null);
+  const { data: history, isLoading: loadingHistory } = useFarmerPaymentHistory(selectedFarmerId);
+
+  const [isExporting, setIsExporting] = useState(false);
+
+  const printRef = useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `Farmer_Debts_${new Date().toISOString().split('T')[0]}`,
+  });
+
+  const [debtsList, setDebtsList] = useState<FarmerDebtSummary[]>([]);
+  const [paymentHistory, setPaymentHistory] = useState<FarmerPayment[]>([]);
+
+  useEffect(() => {
+    if (debts) setDebtsList(debts);
+  }, [debts]);
+
+  useEffect(() => {
+    if (history) setPaymentHistory(history);
+  }, [history]);
+
+  const loading = debtsLoading && debtsList.length === 0;
+  const error = debtsError ? (debtsError as any).message : null;
   const [searchTerm, setSearchTerm] = useState("");
-  
-  // Payment Modal State
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedFarmer, setSelectedFarmer] = useState<FarmerDebtSummary | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -29,31 +140,9 @@ export default function FarmerDebts() {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastPaymentInfo, setLastPaymentInfo] = useState<{name: string, amount: number} | null>(null);
-
-  // History State
   const [showHistory, setShowHistory] = useState(false);
-  const [paymentHistory, setPaymentHistory] = useState<FarmerPayment[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    const adminId = getEffectiveAdminId(profile);
-    if (!adminId) return;
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await farmerPaymentsService.getDebtsSummary(adminId);
-      setDebts(data);
-    } catch (err: any) {
-      console.error("Error fetching debts summary:", err);
-      setError("Failed to load debts. Please refresh.");
-    } finally {
-      setLoading(false);
-    }
-  }, [profile]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleRecordPayment = async () => {
     if (!selectedFarmer || !paymentAmount) return;
@@ -62,51 +151,97 @@ export default function FarmerDebts() {
     if (!adminId) return;
 
     try {
+      setFormError(null);
       setProcessingPayment(true);
-      await farmerPaymentsService.recordPayment({
+      const paymentData = {
         farmer_id: selectedFarmer.farmer_id,
         amount: parseFloat(paymentAmount),
         payment_date: getEATDateString(),
         notes: paymentNotes,
-        admin_id: adminId === 'SUPER_ADMIN' ? profile!.id : adminId
-      });
+        admin_id: (adminId === 'SUPER_ADMIN' ? profile!.id : adminId) || "",
+      };
+
+      if (!isOnline) {
+        await addToSyncQueue('CREATE_FARMER_PAYMENT', paymentData);
+        // Optimistically update UI
+        setDebtsList(prev => prev.map(d => 
+          d.farmer_id === selectedFarmer.farmer_id 
+            ? { ...d, total_paid: (d as any).total_paid + paymentData.amount, remaining_debt: Math.max(0, d.remaining_debt - paymentData.amount) }
+            : d
+        ));
+      } else {
+        await farmerPaymentsService.recordPayment(paymentData);
+        queryClient.invalidateQueries({ queryKey: ['farmer-debts', adminId] });
+      }
       
       setShowPaymentModal(false);
       setLastPaymentInfo({ name: selectedFarmer.farmer_name, amount: parseFloat(paymentAmount) });
       setPaymentAmount("");
       setPaymentNotes("");
-      fetchData(); // Refresh summary
       setShowSuccessModal(true);
     } catch (err: any) {
       console.error("Error recording payment:", err);
-      setError("Failed to record payment: " + err.message);
+      setFormError("Failed to record payment: " + err.message);
     } finally {
       setProcessingPayment(false);
     }
   };
 
-  const viewHistory = async (farmer: FarmerDebtSummary) => {
+  const viewHistory = (farmer: FarmerDebtSummary) => {
     setSelectedFarmer(farmer);
+    setSelectedFarmerId(farmer.farmer_id);
     setShowHistory(true);
-    setLoadingHistory(true);
-    try {
-      const data = await farmerPaymentsService.getPaymentsByFarmer(farmer.farmer_id);
-      setPaymentHistory(data);
-    } catch (err) {
-      console.error("Error fetching history:", err);
-    } finally {
-      setLoadingHistory(false);
-    }
   };
 
-  const filteredDebts = debts
+  const filteredDebts = debtsList
     .filter(d => d.remaining_debt > 0)
     .filter(d => 
       d.farmer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.village.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-  const totalDebtValue = debts.reduce((sum, d) => sum + d.remaining_debt, 0);
+  const totalDebtValue = debtsList.reduce((sum, d) => sum + d.remaining_debt, 0);
+
+  const handleExport = () => {
+    setIsExporting(true);
+    
+    setTimeout(() => {
+      try {
+        const csvRows = [];
+        csvRows.push(['Outstanding Farmer Debts Report']);
+        csvRows.push([`Company: ${company?.name || 'CPMS'}`]);
+        csvRows.push([`Generated: ${new Date().toLocaleString()}`]);
+        csvRows.push(['']);
+        csvRows.push(['Farmer', 'Village', 'Phone', 'Total Value', 'Paid', 'Remaining Debt']);
+        
+        filteredDebts.forEach(debt => {
+          csvRows.push([
+            debt.farmer_name,
+            debt.village,
+            debt.phone,
+            debt.total_purchase_value,
+            debt.total_cash_paid_at_purchase + debt.total_subsequent_payments + debt.total_advance_deducted,
+            debt.remaining_debt
+          ]);
+        });
+
+        const csvString = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        a.setAttribute('download', `Farmer_Debts_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err) {
+        console.error("Export failed:", err);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 100);
+  };
 
   return (
     <Layout breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Farmer Debts" }]}>
@@ -149,18 +284,32 @@ export default function FarmerDebts() {
           />
         </div>
         <div className="flex gap-2">
-          <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-            <Filter size={16} /> Filters
+          <button 
+            onClick={() => handlePrint()}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <Printer size={16} /> Print
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-            <Download size={16} /> Export
+          <button 
+            onClick={handleExport}
+            disabled={isExporting}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            {isExporting ? "Exporting..." : "Export"}
           </button>
         </div>
       </div>
 
+      {/* Hidden Print Component */}
+      <div className="hidden">
+        <FarmerDebtsPrint ref={printRef} debts={filteredDebts} company={company || null} />
+      </div>
+
       {/* Debts Table */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-gray-50/50">
@@ -235,6 +384,32 @@ export default function FarmerDebts() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile List View */}
+        <div className="md:hidden divide-y divide-gray-50">
+          {loading ? (
+            <div className="px-6 py-12 text-center">
+              <Loader2 className="w-8 h-8 text-green-600 animate-spin mx-auto mb-3" />
+              <span className="text-gray-400 text-sm italic">Loading debt summaries...</span>
+            </div>
+          ) : filteredDebts.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-3 text-gray-300">
+                <Users size={24} />
+              </div>
+              <span className="text-gray-400 text-sm">No outstanding debts found.</span>
+            </div>
+          ) : (
+            filteredDebts.map((debt) => (
+              <MobileDebtCard 
+                key={debt.farmer_id} 
+                debt={debt}
+                onRecordPayment={() => { setSelectedFarmer(debt); setShowPaymentModal(true); }}
+                onViewHistory={() => viewHistory(debt)}
+              />
+            ))
+          )}
         </div>
       </div>
 

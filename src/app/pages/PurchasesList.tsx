@@ -1,52 +1,59 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { Layout } from "../components/Layout";
-import { Search, Plus, Pencil, Loader2, ChevronDown, Users } from "lucide-react";
+import { Search, Plus, Pencil, Loader2, ChevronDown, Users, Trash2, AlertCircle } from "lucide-react";
 import { purchasesService } from "../services/purchasesService";
 import { farmerPaymentsService } from "../services/farmerPaymentsService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { ErrorState } from "../components/ErrorState";
 import { PurchaseReceiptModal } from "../components/PurchaseReceiptModal";
 import { Printer } from "lucide-react";
+import { usePurchases } from "../hooks/queries/usePurchases";
+import { useDebtSummary } from "../hooks/queries/useDebtSummary";
+import { useQueryClient } from "@tanstack/react-query";
 
 function formatUGX(v: number) { return `UGX ${Math.round(v).toLocaleString()}`; }
 
 export default function PurchasesList() {
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const adminId = getEffectiveAdminId(profile);
+
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All");
-  const [purchases, setPurchases] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedForReceipt, setSelectedForReceipt] = useState<any>(null);
   const [showReceipt, setShowReceipt] = useState(false);
-  const [debtSummaries, setDebtSummaries] = useState<any[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchPurchases = async () => {
+  const { data: purchases = [], isLoading: purchasesLoading, error: purchasesError, refetch: refetchPurchases } = usePurchases(adminId);
+  const { data: debtSummaries = [], isLoading: debtLoading } = useDebtSummary(adminId);
+
+  const handleDeletePurchase = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this purchase? This will also REVERT any advance deductions associated with it.")) return;
+    
     try {
-      setLoading(true);
-      setError(null);
-      const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
-      const [data, summaries] = await Promise.all([
-        purchasesService.getAll(adminId),
-        farmerPaymentsService.getDebtsSummary(adminId)
-      ]);
-      setPurchases(data || []);
-      setDebtSummaries(summaries || []);
+      setDeletingId(id);
+      await purchasesService.delete(id);
+      
+      // Invalidate ALL relevant queries
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['advances'] });
+      queryClient.invalidateQueries({ queryKey: ['debt-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      
     } catch (err: any) {
-      console.error("Error fetching purchases:", err);
-      setError(err.message);
+      alert("Failed to delete purchase: " + err.message);
     } finally {
-      setLoading(false);
+      setDeletingId(null);
     }
   };
 
-  useEffect(() => {
-    fetchPurchases();
-  }, []);
+  const loading = (purchasesLoading || debtLoading) && purchases.length === 0;
+  const error = (purchasesError as any)?.message || null;
+
+  // Data is now managed by hooks
 
   const filtered = purchases.filter(p => {
     const matchType = filterType === "All" || p.coffee_type === filterType;
@@ -100,7 +107,7 @@ export default function PurchasesList() {
         <ErrorState 
           title="Couldn't Load Purchases" 
           message={error} 
-          onRetry={fetchPurchases} 
+          onRetry={() => refetchPurchases()} 
         />
       </Layout>
     );
@@ -305,6 +312,15 @@ export default function PurchasesList() {
                                               <Pencil size={11} /> Edit
                                             </button>
                                             <button
+                                              onClick={(e) => { e.stopPropagation(); handleDeletePurchase(p.id); }}
+                                              disabled={deletingId === p.id}
+                                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-red-50 transition-colors disabled:opacity-50"
+                                              style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 500, color: "#DC2626", backgroundColor: "#FEF2F2" }}
+                                            >
+                                              {deletingId === p.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                                              Delete
+                                            </button>
+                                            <button
                                               onClick={(e) => { e.stopPropagation(); setSelectedForReceipt(p); setShowReceipt(true); }}
                                               className="p-1.5 rounded-md hover:bg-green-50 text-green-700 transition-colors"
                                               title="Print Receipt"
@@ -432,13 +448,24 @@ export default function PurchasesList() {
                             <Printer size={13} /> View Receipt
                           </button>
                           {(profile?.role === 'Admin' || profile?.role === 'Super Admin') && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); navigate(`/purchases/${p.id}/edit`); }}
-                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
-                              style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 500, color: "#1D4ED8", backgroundColor: "#EFF6FF" }}
-                            >
-                              <Pencil size={11} /> Edit
-                            </button>
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); navigate(`/purchases/${p.id}/edit`); }}
+                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                                style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 500, color: "#1D4ED8", backgroundColor: "#EFF6FF" }}
+                              >
+                                <Pencil size={11} /> Edit
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeletePurchase(p.id); }}
+                                disabled={deletingId === p.id}
+                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
+                                style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 500, color: "#DC2626", backgroundColor: "#FEF2F2" }}
+                              >
+                                {deletingId === p.id ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                                Delete
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>

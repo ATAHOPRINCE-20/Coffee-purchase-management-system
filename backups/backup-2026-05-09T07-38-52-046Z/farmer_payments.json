@@ -1,0 +1,102 @@
+[
+  {
+    "id": "dc8b58af-ba95-4def-8fb0-7a15f346754b",
+    "farmer_id": "574ce6ab-3af1-46b6-9075-6328a4f49745",
+    "purchase_id": null,
+    "amount": 200000,
+    "payment_date": "2026-05-01",
+    "notes": "Full payment",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-01T12:49:02.979257+00:00"
+  },
+  {
+    "id": "7c5de802-fb71-417e-8f1d-3876d9623808",
+    "farmer_id": "aec77952-96ec-435f-af25-d64c3ff39c10",
+    "purchase_id": null,
+    "amount": 100000,
+    "payment_date": "2026-05-01",
+    "notes": "",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-01T12:55:59.732834+00:00"
+  },
+  {
+    "id": "03eb4fa2-b0ee-4306-93f8-94392740fbde",
+    "farmer_id": "a6c57993-707d-42bb-a63f-83864d513ebb",
+    "purchase_id": null,
+    "amount": 100000,
+    "payment_date": "2026-05-01",
+    "notes": "",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-01T13:10:59.154571+00:00"
+  },
+  {
+    "id": "ff85d71d-6d42-4c25-8237-091aeb6c2a36",
+    "farmer_id": "a6c57993-707d-42bb-a63f-83864d513ebb",
+    "purchase_id": null,
+    "amount": 100000,
+    "payment_date": "2026-05-01",
+    "notes": "",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-01T13:15:20.212512+00:00"
+  },
+  {
+    "id": "c8d97bbd-9067-4c41-8165-9b0f3f354ac1",
+    "farmer_id": "aec77952-96ec-435f-af25-d64c3ff39c10",
+    "purchase_id": null,
+    "amount": 100000,
+    "payment_date": "2026-05-01",
+    "notes": "",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-01T13:20:18.3481+00:00"
+  },
+  {
+    "id": "a65f58fd-be3e-4dd4-915e-8e800dcfca18",
+    "farmer_id": "a6c57993-707d-42bb-a63f-83864d513ebb",
+    "purchase_id": null,
+    "amount": 100000,
+    "payment_date": "2026-05-01",
+    "notes": "",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-01T13:23:59.470334+00:00"
+  },
+  {
+    "id": "c2ac0886-ac87-4e86-9017-fccfb51a41e1",
+    "farmer_id": "a6c57993-707d-42bb-a63f-83864d513ebb",
+    "purchase_id": null,
+    "amount": 100000,
+    "payment_date": "2026-05-01",
+    "notes": "",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-01T13:29:35.155963+00:00"
+  },
+  {
+    "id": "666767ba-76cf-401a-a741-872326c857c1",
+    "farmer_id": "fa4b2422-9b64-4a62-8cea-930ec08d6577",
+    "purchase_id": null,
+    "amount": 50000,
+    "payment_date": "2026-05-01",
+    "notes": "",
+    "admin_id": "093bd528-64b9-495d-ab5b-ca54fcb9dfc0",
+    "created_at": "2026-05-01T14:38:48.360348+00:00"
+  },
+  {
+    "id": "3f670ae0-1729-4655-b831-d848679a0e20",
+    "farmer_id": "fa4b2422-9b64-4a62-8cea-930ec08d6577",
+    "purchase_id": null,
+    "amount": 12500,
+    "payment_date": "2026-05-04",
+    "notes": "",
+    "admin_id": "093bd528-64b9-495d-ab5b-ca54fcb9dfc0",
+    "created_at": "2026-05-04T08:57:31.43517+00:00"
+  },
+  {
+    "id": "903428e3-97f8-4dc8-a262-3591657fbf4f",
+    "farmer_id": "a6c57993-707d-42bb-a63f-83864d513ebb",
+    "purchase_id": null,
+    "amount": 400000,
+    "payment_date": "2026-05-06",
+    "notes": "",
+    "admin_id": "42de0877-c623-43a9-a002-10e3b9614e6c",
+    "created_at": "2026-05-06T16:23:46.835328+00:00"
+  }
+]

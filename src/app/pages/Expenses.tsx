@@ -9,6 +9,11 @@ import { expensesService, Expense, COST_TYPES, GENERAL_TYPES } from "../services
 import { seasonsService, Season } from "../services/seasonsService";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { getEATDateString } from "../utils/dateUtils";
+import { useExpenses } from "../hooks/queries/useExpenses";
+import { useSeasons } from "../hooks/queries/useSeasons";
+import { useSync } from "../contexts/SyncContext";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSales as useSalesHook } from "../hooks/queries/useSales";
 
 const formatUGX = (v: number) => `UGX ${Math.round(v).toLocaleString()}`;
 
@@ -32,19 +37,24 @@ function StatCard({ label, value, icon: Icon, color, bgColor }: {
 
 export default function Expenses() {
   const { profile } = useAuth();
-  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin" || profile?.role === "Field Agent";
+  const { isOnline, addToSyncQueue } = useSync();
+  const queryClient = useQueryClient();
+  const adminId = getEffectiveAdminId(profile);
+
+  const { data: expensesData, isLoading: expensesLoading } = useExpenses(adminId);
+  const { data: seasons } = useSeasons(adminId);
+  const { data: salesData } = useSalesHook(adminId, 20);
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [activeSeason, setActiveSeason] = useState<Season | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [sales, setSales] = useState<any[]>([]);
+  const [lastSaleDate, setLastSaleDate] = useState<string>("1970-01-01T00:00:00Z");
+  const [showBatchOnly, setShowBatchOnly] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  const [sales, setSales] = useState<any[]>([]);
   const [selectedSaleId, setSelectedSaleId] = useState<string>("");
-  const [lastSaleDate, setLastSaleDate] = useState<string>("1970-01-01T00:00:00Z");
-  const [showBatchOnly, setShowBatchOnly] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   // Form state
   const [category, setCategory] = useState<"cost" | "general">("cost");
@@ -90,31 +100,19 @@ export default function Expenses() {
     }
   }, [category, expType]);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const adminId = getEffectiveAdminId(profile);
-      if (!adminId) return;
-      const [data, season, salesData, latestSale] = await Promise.all([
-        expensesService.getAll(adminId),
-        seasonsService.getActive(adminId),
-        supabase.from('sales').select('id, coffee_type, date, total_amount').order('date', { ascending: false }).limit(20),
-        supabase.from('sales').select('created_at').order('created_at', { ascending: false }).limit(1).maybeSingle()
-      ]);
-      setExpenses(data);
-      setActiveSeason(season);
-      setSales(salesData.data || []);
-      if (latestSale.data) {
-        setLastSaleDate(latestSale.data.created_at);
+  useEffect(() => {
+    if (expensesData) setExpenses(expensesData);
+    if (seasons) setActiveSeason(seasons.find(s => s.is_active) || null);
+    if (salesData) {
+      setSales(salesData);
+      if (salesData.length > 0) {
+        setLastSaleDate(salesData[0].created_at);
       }
-    } catch (err: any) {
-      console.error("Error loading expenses:", err);
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [expensesData, seasons, salesData]);
 
-  useEffect(() => { fetchData(); }, []);
+  const loading = expensesLoading && expenses.length === 0;
+  const isAdmin = profile?.role === "Admin" || profile?.role === "Super Admin" || profile?.role === "Field Agent";
 
   const showToast = (msg: string, ok = true) => {
     setToast({ msg, ok });
@@ -134,7 +132,7 @@ export default function Expenses() {
       const adminId = getEffectiveAdminId(profile);
       if (!adminId || !profile) return;
       
-      const newExpense = await expensesService.create({
+      const expenseData = {
         admin_id: (adminId === 'SUPER_ADMIN' ? profile.id : adminId) || '',
         season_id: activeSeason?.id,
         category,
@@ -143,13 +141,25 @@ export default function Expenses() {
         date,
         notes: notes.trim() || undefined,
         sale_id: selectedSaleId || undefined,
-      });
-      setExpenses(prev => [newExpense, ...prev]);
+      };
+
+      if (!isOnline) {
+        await addToSyncQueue('CREATE_EXPENSE', expenseData);
+        // Optimistic update
+        const optimisticExpense = { ...expenseData, id: 'temp-' + Date.now(), created_at: new Date().toISOString() } as Expense;
+        setExpenses(prev => [optimisticExpense, ...prev]);
+        showToast("Expense recorded (waiting for sync)!");
+      } else {
+        const newExpense = await expensesService.create(expenseData);
+        setExpenses(prev => [newExpense, ...prev]);
+        queryClient.invalidateQueries({ queryKey: ['expenses', adminId] });
+        showToast("Expense recorded successfully!");
+      }
+      
       setNotes("");
       setSelectedSaleId("");
       setDate(getEATDateString());
       localStorage.removeItem(DRAFT_KEY);
-      showToast("Expense recorded successfully!");
     } catch (err: any) {
       setFormError(err.message || "Failed to save expense.");
     } finally {
@@ -161,9 +171,16 @@ export default function Expenses() {
     if (!confirm("Delete this expense? This cannot be undone.")) return;
     try {
       setDeletingId(id);
-      await expensesService.delete(id);
-      setExpenses(prev => prev.filter(e => e.id !== id));
-      showToast("Expense deleted.");
+      if (!isOnline) {
+        await addToSyncQueue('DELETE_ITEM', { table: 'expenses', id });
+        setExpenses(prev => prev.filter(e => e.id !== id));
+        showToast("Expense deleted (waiting for sync).");
+      } else {
+        await expensesService.delete(id);
+        setExpenses(prev => prev.filter(e => e.id !== id));
+        queryClient.invalidateQueries({ queryKey: ['expenses', adminId] });
+        showToast("Expense deleted.");
+      }
     } catch (err: any) {
       showToast(err.message || "Failed to delete.", false);
     } finally {

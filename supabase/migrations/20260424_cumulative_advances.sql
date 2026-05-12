@@ -66,7 +66,8 @@ BEGIN
         FOR v_adv IN 
             SELECT id, amount, deducted 
             FROM advances
-            WHERE farmer_id::TEXT = p_farmer_id::TEXT AND status = 'Active'
+            WHERE LOWER(farmer_id::TEXT) = LOWER(p_farmer_id::TEXT) 
+              AND LOWER(status) = 'active'
             ORDER BY issue_date ASC, created_at ASC
             FOR UPDATE
         LOOP
