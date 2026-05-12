@@ -3,16 +3,16 @@ import fs from 'fs';
 import path from 'path';
 
 // 1. Configuration - Replace these or use environment variables
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'https://ffqihcnkjqgkrjrsztxw.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
 
-if (!SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('Error: SUPABASE_SERVICE_ROLE_KEY is required.');
-  console.log('Usage: $env:SUPABASE_SERVICE_ROLE_KEY="your_key"; node scripts/backup-db.js');
+if (!SUPABASE_SECRET_KEY) {
+  console.error('Error: SUPABASE_SECRET_KEY is required.');
+  console.log('Usage: $env:SUPABASE_SECRET_KEY="your_key"; node scripts/backup-db.js');
   process.exit(1);
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
 
 const TABLES = [
   'profiles',

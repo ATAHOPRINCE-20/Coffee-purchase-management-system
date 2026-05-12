@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, memo } from "react";
 import { NavLink, useLocation } from "react-router";
 import {
   LayoutDashboard, ShoppingCart, Users, CreditCard, BarChart3,
@@ -39,6 +39,80 @@ const navItems = [
 ];
 
 
+const SidebarNavItem = memo(({ item, isActive, isExpanded, sidebarOpen, profile, toggleExpanded, onMobileClose }: any) => {
+  const hasChildren = item.children && item.children.length > 0;
+  
+  if (hasChildren) {
+    const filteredChildren = item.children.filter((child: any) => 
+      !child.roles || (profile && child.roles.includes(profile.role))
+    );
+
+    return (
+      <div className="mb-1">
+        <button
+          onClick={() => toggleExpanded(item.label)}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group"
+          style={{
+            backgroundColor: isActive ? "rgba(255,255,255,0.15)" : "transparent",
+            color: isActive ? "#fff" : "#86efac",
+          }}
+        >
+          <item.icon size={18} />
+          {sidebarOpen && (
+            <>
+              <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: isActive ? 600 : 400, flex: 1, textAlign: "left" }}>{item.label}</span>
+              <ChevronDown size={14} style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
+            </>
+          )}
+        </button>
+        {isExpanded && sidebarOpen && (
+          <div className="ml-8 mt-1 space-y-0.5">
+            {filteredChildren.map((child: any) => {
+              return (
+                <NavLink
+                  key={child.href}
+                  to={child.href}
+                  onClick={onMobileClose}
+                  className="block px-3 py-2 rounded-lg transition-all duration-150"
+                  style={({ isActive: linkActive }) => ({
+                    backgroundColor: linkActive ? "rgba(255,255,255,0.12)" : "transparent",
+                    color: linkActive ? "#fff" : "#a7f3d0",
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: "13px",
+                    fontWeight: linkActive ? 500 : 400,
+                  })}
+                >
+                  {child.label}
+                </NavLink>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-1">
+      <NavLink
+        to={item.href!}
+        end={item.href === "/"}
+        onClick={onMobileClose}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150"
+        style={({ isActive: linkActive }) => ({
+          backgroundColor: linkActive ? "rgba(255,255,255,0.15)" : "transparent",
+          color: linkActive ? "#fff" : "#86efac",
+        })}
+      >
+        <item.icon size={18} />
+        {sidebarOpen && (
+          <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 400 }}>{item.label}</span>
+        )}
+      </NavLink>
+    </div>
+  );
+});
+
 export function Layout({ children, breadcrumbs, title }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -70,7 +144,7 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
     );
   };
 
-  const renderSidebarContent = () => (
+  const renderSidebarContent = useMemo(() => (
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-5 border-b border-[#1a6b35]">
@@ -89,90 +163,18 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
       <nav className="flex-1 px-3 py-4 overflow-y-auto">
         {navItems
           .filter(item => !item.roles || (profile && item.roles.includes(profile.role)))
-          .map((item) => {
-            const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + "/");
-            const isExpanded = expandedItems.includes(item.label);
-            
-            const filteredChildren = item.children?.filter(child => 
-              !(child as any).roles || (profile && (child as any).roles.includes(profile.role))
-            );
-            const hasChildren = filteredChildren && filteredChildren.length > 0;
-
-          return (
-            <div key={item.label} className="mb-1">
-              {hasChildren ? (
-                <>
-                  <button
-                    onClick={() => toggleExpanded(item.label)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group"
-                    style={{
-                      backgroundColor: isActive ? "rgba(255,255,255,0.15)" : "transparent",
-                      color: isActive ? "#fff" : "#86efac",
-                    }}
-                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(255,255,255,0.08)"; }}
-                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; }}
-                  >
-                    <item.icon size={18} />
-                    {sidebarOpen && (
-                      <>
-                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: isActive ? 600 : 400, flex: 1, textAlign: "left" }}>{item.label}</span>
-                        <ChevronDown size={14} style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
-                      </>
-                    )}
-                  </button>
-                  {isExpanded && sidebarOpen && (
-                    <div className="ml-8 mt-1 space-y-0.5">
-                      {filteredChildren!.map(child => {
-                        const childActive = location.pathname === child.href;
-                        return (
-                          <NavLink
-                            key={child.href}
-                            to={child.href}
-                            onClick={() => setMobileSidebarOpen(false)}
-                            className="block px-3 py-2 rounded-lg transition-all duration-150"
-                            style={({ isActive: linkActive }) => ({
-                              backgroundColor: linkActive ? "rgba(255,255,255,0.12)" : "transparent",
-                              color: linkActive ? "#fff" : "#a7f3d0",
-                              fontFamily: "Inter, sans-serif",
-                              fontSize: "13px",
-                              fontWeight: linkActive ? 500 : 400,
-                            })}
-                          >
-                            {child.label}
-                          </NavLink>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <NavLink
-                  to={item.href!}
-                  end={item.href === "/"}
-                  onClick={() => setMobileSidebarOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150"
-                  style={({ isActive: linkActive }) => ({
-                    backgroundColor: linkActive ? "rgba(255,255,255,0.15)" : "transparent",
-                    color: linkActive ? "#fff" : "#86efac",
-                  })}
-                  onMouseEnter={(e) => {
-                    const el = e.currentTarget as HTMLElement;
-                    if (!el.style.backgroundColor.includes("0.15")) el.style.backgroundColor = "rgba(255,255,255,0.08)";
-                  }}
-                  onMouseLeave={(e) => {
-                    const el = e.currentTarget as HTMLElement;
-                    if (!el.style.backgroundColor.includes("0.15")) el.style.backgroundColor = "transparent";
-                  }}
-                >
-                  <item.icon size={18} />
-                  {sidebarOpen && (
-                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", fontWeight: 400 }}>{item.label}</span>
-                  )}
-                </NavLink>
-              )}
-            </div>
-          );
-        })}
+          .map((item) => (
+            <SidebarNavItem 
+              key={item.label}
+              item={item}
+              isActive={location.pathname === item.href || location.pathname.startsWith(item.href + "/")}
+              isExpanded={expandedItems.includes(item.label)}
+              sidebarOpen={sidebarOpen}
+              profile={profile}
+              toggleExpanded={toggleExpanded}
+              onMobileClose={() => setMobileSidebarOpen(false)}
+            />
+          ))}
       </nav>
 
       {/* Bottom User */}
@@ -190,29 +192,22 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
               </div>
               <div className="flex items-center gap-1.5">
                 <div style={{ color: "#86efac", fontFamily: "Inter, sans-serif", fontSize: "11px" }}>{profile?.role || "Agent"}</div>
-                {/* Subscription badge hidden
-                {profile?.subscription && (
-                  <>
-                    <div className="w-1 h-1 rounded-full bg-white/30" />
-                    <div className="flex items-center gap-0.5 text-amber-300">
-                      <Crown size={8} />
-                      <span className="text-[9px] font-bold uppercase tracking-tight">{profile.subscription.plans?.name}</span>
-                    </div>
-                  </>
-                )}
-                */}
               </div>
             </div>
           )}
           {sidebarOpen && (
-            <button onClick={signOut} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
+            <button 
+              onClick={signOut} 
+              aria-label="Sign Out"
+              className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+            >
               <LogOut size={14} color="#86efac" />
             </button>
           )}
         </div>
       </div>
     </div>
-  );
+  ), [sidebarOpen, profile, location.pathname, expandedItems]);
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: "#F8FAFC", fontFamily: "Inter, sans-serif" }}>
@@ -224,7 +219,7 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
           backgroundColor: "#14532D",
         }}
       >
-        {renderSidebarContent()}
+        {renderSidebarContent}
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -232,31 +227,33 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
         <div className="fixed inset-0 z-50 flex md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileSidebarOpen(false)} />
           <aside className="relative w-64 flex flex-col" style={{ backgroundColor: "#14532D" }}>
-            <button className="absolute top-4 right-4" onClick={() => setMobileSidebarOpen(false)}>
+            <button className="absolute top-4 right-4" onClick={() => setMobileSidebarOpen(false)} aria-label="Close Menu">
               <X size={20} color="#fff" />
             </button>
-            {renderSidebarContent()}
+            {renderSidebarContent}
           </aside>
         </div>
       )}
 
       {/* Main Area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 flex-shrink-0"
+        <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 flex-shrink-0 w-full overflow-hidden"
           style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
           <div className="flex items-center gap-4">
             <button
               className="hidden md:flex p-2 rounded-lg hover:bg-gray-100 transition-colors"
               onClick={() => { setSidebarOpen(!sidebarOpen); }}
+              aria-label={sidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
             >
-              <Menu size={20} color="#6B7280" />
+              <Menu size={20} color="#4B5563" />
             </button>
             <button
               className="flex md:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
               onClick={() => setMobileSidebarOpen(true)}
+              aria-label="Open Menu"
             >
-              <Menu size={20} color="#6B7280" />
+              <Menu size={20} color="#4B5563" />
             </button>
             {/* Breadcrumb */}
             {breadcrumbs && (
@@ -271,7 +268,7 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
                           fontFamily: "Inter, sans-serif",
                           fontSize: "13px",
                           fontWeight: i === breadcrumbs.length - 1 ? 600 : 400,
-                          color: i === breadcrumbs.length - 1 ? "#14532D" : "#6B7280",
+                          color: i === breadcrumbs.length - 1 ? "#14532D" : "#4B5563",
                         }}
                         className="hover:underline"
                       >
@@ -283,7 +280,7 @@ export function Layout({ children, breadcrumbs, title }: LayoutProps) {
                           fontFamily: "Inter, sans-serif",
                           fontSize: "13px",
                           fontWeight: i === breadcrumbs.length - 1 ? 600 : 400,
-                          color: i === breadcrumbs.length - 1 ? "#14532D" : "#6B7280",
+                          color: i === breadcrumbs.length - 1 ? "#14532D" : "#4B5563",
                         }}
                       >
                         {crumb.label}

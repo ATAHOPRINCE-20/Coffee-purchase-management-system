@@ -282,7 +282,7 @@ export default function AcceptInvite() {
         </div>
 
         <p className="text-center mt-8" style={{ fontFamily: 'Inter, sans-serif', fontSize: '12px', color: '#9CA3AF' }}>
-          © 2026 Coffee Management System. All rights reserved.
+          © 2026 Coffexx. All rights reserved.
         </p>
       </div>
     </div>

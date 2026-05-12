@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { Layout } from "../components/Layout";
-import { Search, Plus, ChevronDown, Filter, Eye, Check, X, CreditCard, TrendingUp, AlertCircle, Users, Loader2, Pencil, Info } from "lucide-react";
+import { Search, Plus, ChevronDown, Filter, Eye, Check, X, CreditCard, TrendingUp, AlertCircle, Users, Loader2, Pencil, Info, Download } from "lucide-react";
 import { farmersService, Farmer } from "../services/farmersService";
 import { advancesService } from "../services/advancesService";
 import { seasonsService, Season } from "../services/seasonsService";
@@ -11,7 +11,11 @@ import { ErrorState } from "../components/ErrorState";
 import { useAdvances } from "../hooks/queries/useAdvances";
 import { useFarmers } from "../hooks/queries/useFarmers";
 import { useSeasons } from "../hooks/queries/useSeasons";
+import { useCompanyProfile } from "../hooks/queries/useCompanyProfile";
 import { queryClient } from "../lib/QueryProvider";
+import { useReactToPrint } from 'react-to-print';
+import { FarmerAdvancesPrint } from "../components/pos/FarmerAdvancesPrint";
+import { Printer } from "lucide-react";
 
 function formatUGX(v: number) { return `UGX ${Math.round(v).toLocaleString()}`; }
 
@@ -73,6 +77,13 @@ export default function AdvanceManagement() {
   const [viewingAdvance, setViewingAdvance] = useState<any | null>(null);
   const [confirmConsolidate, setConfirmConsolidate] = useState<any | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const { data: company } = useCompanyProfile(adminId);
+  const printRef = React.useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `Farmer_Advances_${new Date().toISOString().split('T')[0]}`,
+  });
 
   const loading = (advancesLoading || farmersLoading || seasonsLoading) && advances.length === 0;
   const error = (advancesError as any)?.message || null;
@@ -282,6 +293,46 @@ export default function AdvanceManagement() {
         setSubmitting(false);
       }
     }
+  };
+
+  const handleExport = () => {
+    setIsExporting(true);
+    setTimeout(() => {
+      try {
+        const csvRows = [];
+        csvRows.push(['Outstanding Farmer Advances Report']);
+        csvRows.push([`Generated: ${new Date().toLocaleString()}`]);
+        csvRows.push(['']);
+        csvRows.push(['Farmer', 'Village', 'Date Given', 'Amount Given', 'Deducted', 'Balance', 'Status']);
+        
+        filteredAdvances.forEach(a => {
+          csvRows.push([
+            a.farmers?.name || "Unknown",
+            a.farmers?.village || "",
+            a.issue_date,
+            a.amount,
+            a.deducted || 0,
+            a.remaining,
+            a.status
+          ]);
+        });
+
+        const csvString = csvRows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('hidden', '');
+        a.setAttribute('href', url);
+        a.setAttribute('download', `Farmer_Advances_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err) {
+        console.error("Export failed:", err);
+      } finally {
+        setIsExporting(false);
+      }
+    }, 100);
   };
 
   const handleConsolidate = async (group: any) => {
@@ -694,12 +745,32 @@ export default function AdvanceManagement() {
                   >
                     <option value="All">All Seasons</option>
                     {seasons.map(s => (
-                      <option key={s.id} value={s.name}>{s.name}</option>
-                    ))}
-                  </select>
-                </div>
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => handlePrint()}
+                  className="px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-all font-bold flex items-center gap-2"
+                  style={{ fontFamily: 'Inter', fontSize: '12px' }}
+                >
+                  <Printer size={14} /> Print Statement
+                </button>
+                <button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  className="px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-all font-bold flex items-center gap-2 disabled:opacity-50"
+                  style={{ fontFamily: 'Inter', fontSize: '12px' }}
+                >
+                  {isExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  Export CSV
+                </button>
               </div>
             </div>
+          </div>
+
+          <div className="hidden">
+            <FarmerAdvancesPrint ref={printRef} advances={filteredAdvances} company={company || null} />
+          </div>
 
             {/* Desktop View */}
           <div className="hidden lg:block overflow-x-auto max-h-[600px]">

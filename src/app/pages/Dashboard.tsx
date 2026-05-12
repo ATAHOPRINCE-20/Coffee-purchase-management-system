@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, memo, ElementType } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, BarChart, Bar
@@ -30,8 +30,8 @@ import { useAgentPerformance } from "../hooks/queries/useAgentPerformance";
 
 const formatUGX = (v: number) => `UGX ${(v || 0).toLocaleString()}`;
 
-function StatCard({ icon: Icon, label, value, sub, color, trend, details }: {
-  icon: React.ElementType; label: string; value: string; sub?: string; color: string; trend?: string;
+const StatCard = memo(function StatCard({ icon: Icon, label, value, sub, color, trend, details }: {
+  icon: ElementType; label: string; value: string; sub?: string; color: string; trend?: string;
   details?: { label: string; value: string; color: string }[];
 }) {
   return (
@@ -48,9 +48,9 @@ function StatCard({ icon: Icon, label, value, sub, color, trend, details }: {
             </div>
           )}
         </div>
-        <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 500, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>{label}</div>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 500, color: "#4B5563", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>{label}</div>
         {value && <div style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827", lineHeight: 1.2 }}>{value}</div>}
-        {sub && <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF", marginTop: "4px" }}>{sub}</div>}
+        {sub && <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151", marginTop: "4px" }}>{sub}</div>}
       </div>
       {details && details.length > 0 && (
         <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
@@ -64,7 +64,7 @@ function StatCard({ icon: Icon, label, value, sub, color, trend, details }: {
       )}
     </div>
   );
-}
+});
 
 const COLORS = ["#14532D", "#DC2626", "#A855F7"];
 
@@ -108,9 +108,9 @@ export default function Dashboard() {
 
   // Compute derived state from hook data
   const todayStr = getEATDateString();
-  const todayPrices = latestPrice?.date === todayStr ? latestPrice : null;
-  const activeAdvances = advances.filter((a: any) => a.status === 'Active');
-  const totalFarmerDebt = debtSummaries.reduce((sum: number, d: any) => sum + (d.remaining_debt || 0), 0);
+  const todayPrices = useMemo(() => latestPrice?.date === todayStr ? latestPrice : null, [latestPrice, todayStr]);
+  const activeAdvances = useMemo(() => advances.filter((a: any) => a.status === 'Active'), [advances]);
+  const totalFarmerDebt = useMemo(() => debtSummaries.reduce((sum: number, d: any) => sum + (d.remaining_debt || 0), 0), [debtSummaries]);
 
   const season = activeSeason;
   const purchases = recentPurchases;
@@ -257,14 +257,13 @@ export default function Dashboard() {
   }
 
   return (
-    <Layout
-      breadcrumbs={[{ label: "Dashboard" }]}
-    >
-
-      <div className="flex items-center justify-between mb-6">
+    <Layout breadcrumbs={[{ label: "Dashboard" }]}>
+      <div className="max-w-full overflow-x-hidden">
+        {/* Header Section */}
+        <div className="flex items-center justify-between mb-6">
         <div>
           <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>{getEATGreeting()}, {profile?.full_name?.split(' ')[0] || "User"}</h1>
-          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} · Season {season?.name || "None"}</p>
+          <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#4B5563", marginTop: "2px" }}>{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} · Season {season?.name || "None"}</p>
           
           {/* View Mode Toggle - Moved into header for visibility */}
           <div className="flex gap-2 mt-4 p-1 bg-gray-100 rounded-xl w-fit">
@@ -331,6 +330,7 @@ export default function Dashboard() {
             <div className="ml-auto flex items-center gap-2">
               <button
                 onClick={() => setShowShareModal(true)}
+                aria-label="Share Today's Prices"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-[#d1fae5] transition-all"
                 style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#14532D" }}
                 title="Share Today's Prices"
@@ -536,7 +536,7 @@ export default function Dashboard() {
         {/* Pie Chart */}
         <div className="bg-white rounded-xl p-6" style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #F1F5F9" }}>
           <div style={{ fontFamily: "Inter, sans-serif", fontSize: "15px", fontWeight: 600, color: "#111827", marginBottom: "4px" }}>Coffee Type Split</div>
-          <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#6B7280", marginBottom: "20px" }}>This month</div>
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#4B5563", marginBottom: "20px" }}>This month</div>
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
               <Pie data={coffeeTypeBreakdown} cx="50%" cy="50%" innerRadius={50} outerRadius={72} dataKey="percentage" stroke="none">
@@ -790,6 +790,7 @@ export default function Dashboard() {
         prices={todayPrices || undefined}
         dateStr={todayPrices?.date || getEATDateString()}
       />
+      </div>
     </Layout>
   );
 }

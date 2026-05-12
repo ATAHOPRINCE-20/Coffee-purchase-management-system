@@ -443,23 +443,28 @@ export default function Settings() {
                     ) : (
                       <>
                         {ledger.map(entry => (
-                          <div key={entry.id} className="flex items-center justify-between p-4 rounded-2xl border border-gray-50 hover:border-gray-100 transition-all bg-white group">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${entry.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                                {entry.amount > 0 ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-gray-900 truncate">{entry.notes || entry.type}</p>
-                                <p className="text-[10px] text-gray-400 font-medium">
-                                  {new Date(entry.created_at).toLocaleDateString()} • {new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </p>
-                              </div>
+                          <div key={entry.id} className="grid grid-cols-[1fr_auto] md:grid-cols-[auto_1fr_auto] items-center gap-3 md:gap-4 p-4 md:p-5 rounded-2xl border border-gray-50 hover:border-green-100 hover:shadow-md hover:scale-[1.01] transition-all bg-white group mb-3 last:mb-0">
+                            {/* Icon - Hidden on mobile */}
+                            <div className={`hidden md:flex w-12 h-12 rounded-2xl items-center justify-center flex-shrink-0 ${entry.amount > 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'} transition-colors group-hover:bg-opacity-80`}>
+                              {entry.amount > 0 ? <ArrowUpRight size={22} /> : <ArrowDownLeft size={22} />}
                             </div>
-                            <div className="text-right">
-                              <p className={`text-sm font-black ${entry.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+
+                            {/* Details */}
+                            <div className="min-w-0">
+                              <p className="text-[14px] md:text-[15px] font-bold text-gray-900 truncate mb-0.5 tracking-tight">
+                                {entry.notes || entry.type}
+                              </p>
+                              <p className="text-[10px] md:text-[11px] text-gray-400 font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                                {new Date(entry.created_at).toLocaleDateString("en-GB", { day: '2-digit', month: 'short', year: 'numeric' })} • {new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+
+                            {/* Amount */}
+                            <div className="text-right pl-2">
+                              <p className={`text-[15px] md:text-[16px] font-black whitespace-nowrap ${entry.amount > 0 ? 'text-green-700' : 'text-red-600'}`}>
                                 {entry.amount > 0 ? '+' : ''}{formatCurrency(entry.amount)}
                               </p>
-                              <p className="text-[9px] text-gray-300 font-bold uppercase tracking-tighter">{entry.type}</p>
+                              <p className="text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">{entry.type}</p>
                             </div>
                           </div>
                         ))}

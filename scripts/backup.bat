@@ -2,8 +2,15 @@
 :: Navigate to the project directory
 cd /d "f:\JANUARY 2026\Coffee Management System"
 
-:: Set the service role key (Replace with your actual key if different)
-set SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmcWloY25ranFna3JqcnN6dHh3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTgxNDQyNiwiZXhwIjoyMDg3MzkwNDI2fQ.2ESMddTt0PSZbhn4iYeBkffhcY19oiWDZ2_eFb3MPHY
+:: SUPABASE_SERVICE_ROLE_KEY must be set as a Windows Environment Variable.
+:: Do NOT hardcode secrets here. Set it via:
+::   System Properties > Environment Variables > System/User Variables
+:: OR temporarily in the same terminal session before running this script:
+::   set SUPABASE_SERVICE_ROLE_KEY=your_key_here
+if "%SUPABASE_SERVICE_ROLE_KEY%"=="" (
+  echo ERROR: SUPABASE_SERVICE_ROLE_KEY is not set. Please set it as a system environment variable.
+  exit /b 1
+)
 
 :: Run the backup script and append output to a log file
 echo [%date% %time%] Starting automated backup... >> backups\backup_log.txt

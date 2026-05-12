@@ -2,12 +2,18 @@
 @import './tailwind.css';
 @import './theme.css';
 
-* {
-  font-family: 'Inter', sans-serif;
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  background-color: #F8FAFC;
 }
 
-body {
-  background-color: #F8FAFC;
+*, *::before, *::after {
+  box-sizing: border-box;
+  font-family: 'Inter', sans-serif;
 }
 
 input[type="number"]::-webkit-inner-spin-button,
