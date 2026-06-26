@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { get, set } from 'idb-keyval';
 import { supabase } from '../lib/supabase';
 
@@ -38,6 +38,9 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  // Use a ref to guard against concurrent runs without causing re-renders
+  // that would recreate processQueue and trigger an infinite useEffect loop.
+  const isSyncingRef = useRef(false);
 
   // Load initial queue count
   const refreshQueueCount = useCallback(async () => {
@@ -138,14 +141,16 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   };
 
   const processQueue = useCallback(async () => {
-    if (isSyncing || !isOnline) return;
+    // Use ref instead of state to avoid recreating this callback on every sync
+    // which would cause an infinite useEffect re-run loop
+    if (isSyncingRef.current || !isOnline) return;
 
     try {
+      isSyncingRef.current = true;
       setIsSyncing(true);
       let queue: PendingAction[] = await get(QUEUE_KEY) || [];
       
       if (queue.length === 0) {
-        setIsSyncing(false);
         return;
       }
 
@@ -171,9 +176,10 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error('Error during sync process:', e);
     } finally {
+      isSyncingRef.current = false;
       setIsSyncing(false);
     }
-  }, [isOnline, isSyncing]);
+  }, [isOnline]); // Removed isSyncing — now guarded by isSyncingRef to prevent infinite loop
 
   useEffect(() => {
     refreshQueueCount();

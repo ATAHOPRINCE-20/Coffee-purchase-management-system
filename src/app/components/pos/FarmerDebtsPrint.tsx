@@ -9,7 +9,7 @@ interface FarmerDebtsPrintProps {
 }
 
 export const FarmerDebtsPrint = forwardRef<HTMLDivElement, FarmerDebtsPrintProps>(({ debts, company }, ref) => {
-  const totalOwed = debts.reduce((sum, d) => sum + d.remaining_debt, 0);
+  const totalOwed = debts.reduce((sum, d) => sum + Math.max(0, d.remaining_debt || 0), 0);
 
   return (
     <div ref={ref} className="p-8 bg-white text-black font-sans">

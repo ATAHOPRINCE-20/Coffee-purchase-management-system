@@ -64,6 +64,18 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
+    // Determine the base site URL dynamically based on caller origin (supports local dev e.g. http://localhost:5173 and prod)
+    const originHeader = req.headers.get('Origin') || req.headers.get('Referer');
+    let siteUrl = Deno.env.get('SITE_URL') || 'https://www.coffexx.com';
+    if (originHeader) {
+      try {
+        const originUrl = new URL(originHeader);
+        siteUrl = originUrl.origin;
+      } catch {
+        // Fallback to configured SITE_URL
+      }
+    }
+
     const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
       type: 'invite',
       email,
@@ -75,7 +87,7 @@ Deno.serve(async (req) => {
           parent_id: user.id, // Direct inviter
           role: finalRole 
         },
-        redirectTo: `${Deno.env.get('SITE_URL')}/accept-invite`,
+        redirectTo: `${siteUrl}/accept-invite`,
       },
     });
 
@@ -119,7 +131,7 @@ Deno.serve(async (req) => {
     if (!hashedToken) return respond({ error: 'Failed to extract token hash from action link.' });
     
     // Construct the invite link to hit our frontend specifically with token_hash
-    const inviteUrl = `${Deno.env.get('SITE_URL')}/accept-invite?token_hash=${hashedToken}&type=invite`;
+    const inviteUrl = `${siteUrl}/accept-invite?token_hash=${hashedToken}&type=invite`;
     console.log('[invite-agent] Invite link generated for:', email);
 
     // Return the invite link directly to the client (to be shared via WhatsApp)

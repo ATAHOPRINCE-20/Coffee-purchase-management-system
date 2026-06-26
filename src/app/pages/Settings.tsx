@@ -4,7 +4,7 @@ import { Layout } from "../components/Layout";
 import { 
   User, Bell, Shield, Smartphone, Globe, 
   Save, Loader2, Check, ChevronRight, LogOut,
-  Mail, MapPin, Building2, Wallet, Plus, ArrowUpRight, ArrowDownLeft, Printer
+  Mail, MapPin, Building2, Wallet, Plus, ArrowUpRight, ArrowDownLeft, Printer, Download
 } from "lucide-react";
 import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { settingsService, CompanyProfile, CapitalLedgerEntry } from "../services/settingsService";
@@ -33,7 +33,10 @@ export default function Settings() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [ledger, setLedger] = useState<CapitalLedgerEntry[]>([]);
+  const [printLedger, setPrintLedger] = useState<CapitalLedgerEntry[]>([]);
   const [showTopUp, setShowTopUp] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState("");
   const [topUpNotes, setTopUpNotes] = useState("");
@@ -133,6 +136,117 @@ export default function Settings() {
     }
   };
 
+  const handleExportLedger = async () => {
+    const adminId = getEffectiveAdminId(profile);
+    if (!adminId) return;
+
+    setIsExporting(true);
+    try {
+      // Fetch all capital ledger entries (up to 5,000 for full history)
+      const allEntries = await settingsService.getCapitalLedger(adminId, 5000, 0);
+      
+      const csvRows = [];
+      // Header Info
+      csvRows.push([`Capital & Transaction Ledger Report`]);
+      csvRows.push([`Company: ${agencyData.name || 'CPMS'}`]);
+      csvRows.push([`Generated: ${new Date().toLocaleString()}`]);
+      csvRows.push(['']);
+
+      // Table Headers
+      csvRows.push(['Date', 'Time', 'Description', 'Type', 'Amount (UGX)']);
+
+      // Group by month
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      
+      const grouped: Record<string, CapitalLedgerEntry[]> = {};
+      allEntries.forEach(entry => {
+        const d = new Date(entry.created_at);
+        const monthKey = `${months[d.getMonth()]} ${d.getFullYear()}`;
+        if (!grouped[monthKey]) {
+          grouped[monthKey] = [];
+        }
+        grouped[monthKey].push(entry);
+      });
+
+      // Sort month keys in reverse chronological order (newest month first)
+      const sortedMonthKeys = Object.keys(grouped).sort((a, b) => {
+        const [monthA, yearA] = a.split(' ');
+        const [monthB, yearB] = b.split(' ');
+        const idxA = months.indexOf(monthA);
+        const idxB = months.indexOf(monthB);
+        
+        if (yearA !== yearB) {
+          return parseInt(yearB) - parseInt(yearA);
+        }
+        return idxB - idxA;
+      });
+
+      sortedMonthKeys.forEach(monthKey => {
+        // Insert a section header for the month
+        csvRows.push(['']);
+        csvRows.push([`--- ${monthKey.toUpperCase()} ---`, '', '', '', '']);
+        
+        // Insert entries for this month
+        grouped[monthKey].forEach(entry => {
+          const d = new Date(entry.created_at);
+          const dateStr = d.toLocaleDateString("en-GB");
+          const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const amountStr = `${entry.amount > 0 ? '+' : ''}${entry.amount}`;
+          csvRows.push([
+            dateStr,
+            timeStr,
+            entry.notes || entry.type,
+            entry.type,
+            amountStr
+          ]);
+        });
+      });
+
+      // Generate CSV String
+      const csvString = csvRows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+      
+      // Download CSV
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('hidden', '');
+      a.setAttribute('href', url);
+      a.setAttribute('download', `Capital_Ledger_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Failed to export ledger:", err);
+      alert("Failed to export ledger. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+  const handlePrintLedger = async () => {
+    const adminId = getEffectiveAdminId(profile);
+    if (!adminId) return;
+
+    setLoading(true);
+    try {
+      const data = await settingsService.getCapitalLedger(adminId, 5000, 0);
+      setPrintLedger(data);
+      setIsPrinting(true);
+    } catch (err) {
+      console.error("Failed to fetch print ledger:", err);
+      alert("Failed to prepare ledger for printing. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isPrinting) {
+      handlePrint();
+      setIsPrinting(false);
+    }
+  }, [isPrinting]);
+
+
   const handleSaveProfile = async () => {
     setSaving(true);
     await new Promise(r => setTimeout(r, 800));
@@ -174,7 +288,7 @@ export default function Settings() {
         <p className="text-sm text-gray-500 mt-1" style={{ fontFamily: "Inter, sans-serif" }}>Manage your profile and application preferences</p>
       </div>
 
-      <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Sidebar Nav */}
         <div className="lg:col-span-1 space-y-2">
             {menuItems.filter(i => !i.hidden).map(item => (
@@ -198,7 +312,7 @@ export default function Settings() {
         </div>
 
         {/* Content Area */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-3">
           {activeTab === "Profile" && (
             <Section icon={User} title="Profile Information" subtitle="Manage your personal profile and account credentials">
               <div className="space-y-6">
@@ -423,13 +537,23 @@ export default function Settings() {
                       Recent Transactions
                       <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-bold">LATEST 20</span>
                     </h4>
-                    <button 
-                      onClick={() => handlePrint()}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all text-[11px] font-bold"
-                    >
-                      <Printer size={13} />
-                      Print Ledger
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handleExportLedger}
+                        disabled={isExporting}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-all text-[11px] font-bold"
+                      >
+                        {isExporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                        Download Ledger
+                      </button>
+                      <button 
+                        onClick={handlePrintLedger}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all text-[11px] font-bold"
+                      >
+                        <Printer size={13} />
+                        Print Ledger
+                      </button>
+                    </div>
                   </div>
                   <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
                     {loading ? (
@@ -486,7 +610,7 @@ export default function Settings() {
               
               {/* Hidden Print Component */}
               <div className="hidden">
-                <CapitalLedgerPrint ref={printRef} ledger={ledger} company={agencyData} />
+                <CapitalLedgerPrint ref={printRef} ledger={printLedger.length > 0 ? printLedger : ledger} company={agencyData} />
               </div>
             </Section>
           )}

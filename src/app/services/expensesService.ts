@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 export type ExpenseCategory = 'cost' | 'general';
 
 export const COST_TYPES = ['Milling Charge', 'Transport', 'Labour'] as const;
-export const GENERAL_TYPES = ['Salary', 'Meals', 'Accommodation', 'Transport', 'Airtime'] as const;
+export const GENERAL_TYPES = ['Salary', 'Meals', 'Accommodation', 'Transport', 'Airtime', 'Others'] as const;
 
 export type CostType = typeof COST_TYPES[number];
 export type GeneralType = typeof GENERAL_TYPES[number];

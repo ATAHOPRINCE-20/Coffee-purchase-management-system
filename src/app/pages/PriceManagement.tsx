@@ -249,7 +249,7 @@ export default function PriceManagement() {
         <div>
           <h1 style={{ fontFamily: "Inter, sans-serif", fontSize: "22px", fontWeight: 700, color: "#111827" }}>Price Management</h1>
           <p style={{ fontFamily: "Inter, sans-serif", fontSize: "13px", color: "#6B7280", marginTop: "2px" }}>
-            Set and manage daily buying prices for Kiboko, Red, and Kase coffee
+            Set and manage daily buying prices for Kiboko, Red, and Kase / Clean coffee
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -338,7 +338,7 @@ export default function PriceManagement() {
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "#A855F7" }} />
                       <span style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Kase
+                        Kase / Clean
                       </span>
                     </div>
                      <div style={{ fontFamily: "Inter, sans-serif", fontSize: "24px", fontWeight: 700, color: "#A855F7" }}>
@@ -453,7 +453,7 @@ export default function PriceManagement() {
                   {/* Kase Input */}
                   <div>
                     <label style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", fontWeight: 600, color: "#374151", display: "block", marginBottom: "6px" }}>
-                      Kase Price (UGX/kg) <span style={{ color: "#DC2626" }}>*</span>
+                      Kase / Clean Price (UGX/kg) <span style={{ color: "#DC2626" }}>*</span>
                     </label>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#9CA3AF" }}>UGX</span>
@@ -693,7 +693,7 @@ export default function PriceManagement() {
               const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
               const current = todayEntry?.[type] ?? prices[0]?.[type];
               
-              const label = type === 'kiboko_price' ? "Kiboko" : type === 'red_price' ? "Red" : "Kase";
+              const label = type === 'kiboko_price' ? "Kiboko" : type === 'red_price' ? "Red" : "Kase / Clean";
               const color = type === 'kiboko_price' ? "#14532D" : type === 'red_price' ? "#DC2626" : "#A855F7";
               const bg = type === 'kiboko_price' ? "#f0fdf4" : type === 'red_price' ? "#fef2f2" : "#fdf4ff";
               

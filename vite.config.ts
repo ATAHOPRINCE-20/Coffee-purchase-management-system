@@ -65,12 +65,27 @@ export default defineConfig({
   assetsInclude: ['**/*.svg', '**/*.csv'],
 
   build: {
+    target: 'esnext',
+    minify: 'terser',
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          supabase: ['@supabase/supabase-js'],
+          'vendor': ['react', 'react-dom', 'react-router', 'react-router-dom'],
+          'supabase': ['@supabase/supabase-js'],
+          'mui': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+          'charts': ['recharts'],
+          'maps': ['leaflet', 'react-leaflet'],
+          'utils': ['date-fns', 'lucide-react', 'idb-keyval'],
+          'pdf': ['jspdf', 'html2canvas', 'html-to-image']
         }
+      }
+    },
+    chunkSizeWarningLimit: 1000,
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true
       }
     }
   }

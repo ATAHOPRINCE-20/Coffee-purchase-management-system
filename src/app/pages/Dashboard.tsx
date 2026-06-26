@@ -77,6 +77,13 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<'Personal' | 'Team'>('Personal');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  // Defer mounting heavy components until after initial LCP
+  useEffect(() => {
+    const timer = setTimeout(() => setIsReady(true), 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   // All data fetched via hooks with built-in caching and real-time updates
   const { data: farmers = [] } = useFarmers(adminId);
@@ -110,7 +117,7 @@ export default function Dashboard() {
   const todayStr = getEATDateString();
   const todayPrices = useMemo(() => latestPrice?.date === todayStr ? latestPrice : null, [latestPrice, todayStr]);
   const activeAdvances = useMemo(() => advances.filter((a: any) => a.status === 'Active'), [advances]);
-  const totalFarmerDebt = useMemo(() => debtSummaries.reduce((sum: number, d: any) => sum + (d.remaining_debt || 0), 0), [debtSummaries]);
+  const totalFarmerDebt = useMemo(() => debtSummaries.reduce((sum: number, d: any) => sum + Math.max(0, d.remaining_debt || 0), 0), [debtSummaries]);
 
   const season = activeSeason;
   const purchases = recentPurchases;
@@ -203,7 +210,8 @@ export default function Dashboard() {
       monthData[months[d.getMonth()]] = 0;
     }
 
-    recentPurchases.forEach((p: any) => {
+    const seasonalPurchases = statsData?.seasonal?.purchases || [];
+    seasonalPurchases.forEach((p: any) => {
       const d = new Date(p.date);
       const m = months[d.getMonth()];
       if (monthData[m] !== undefined) {
@@ -212,15 +220,15 @@ export default function Dashboard() {
     });
 
     return Object.entries(monthData).map(([month, weight]) => ({ month, weight }));
-  }, [recentPurchases]);
+  }, [statsData?.seasonal?.purchases]);
 
   // Fetch top farmers once on mount (not real-time critical)
   useEffect(() => {
-    if (!adminId) return;
+    if (!adminId || !isReady) return;
     purchasesService.getTopFarmers(adminId, 5)
       .then(setTopFarmers)
       .catch(() => setTopFarmers([]));
-  }, [adminId]);
+  }, [adminId, isReady]);
 
   // Set default season for Super Admin selector
   useEffect(() => {
@@ -320,7 +328,7 @@ export default function Dashboard() {
             {([
               { label: "Kiboko", value: todayPrices.kiboko_price, color: "#14532D" },
               { label: "Red",     value: todayPrices.red_price,     color: "#DC2626" },
-              { label: "Kase",    value: todayPrices.kase_price,    color: "#A855F7" },
+              { label: "Kase / Clean", value: todayPrices.kase_price,    color: "#A855F7" },
             ] as const).map(item => (
               <div key={item.label} className="flex items-center gap-1.5 px-3 py-1 rounded-lg" style={{ backgroundColor: "#fff", border: "1px solid #d1fae5" }}>
                 <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", fontWeight: 600, color: "#6B7280" }}>{item.label}</span>
@@ -375,7 +383,7 @@ export default function Dashboard() {
           details={[
             { label: "Kiboko", value: `${stats.kibokoWeightToday.toLocaleString()} kg`, color: "#14532D" },
             { label: "Red", value: `${stats.redWeightToday.toLocaleString()} kg`, color: "#DC2626" },
-            { label: "Kase", value: `${stats.kaseWeightToday.toLocaleString()} kg`, color: "#A855F7" }
+            { label: "Kase / Clean", value: `${stats.kaseWeightToday.toLocaleString()} kg`, color: "#A855F7" }
           ]}
         />
         {profile?.role !== 'Super Admin' && (
@@ -398,7 +406,7 @@ export default function Dashboard() {
               details={[
                 { label: "Kiboko", value: formatUGX(stats.kibokoValueToday), color: "#14532D" },
                 { label: "Red", value: formatUGX(stats.redValueToday), color: "#DC2626" },
-                { label: "Kase", value: formatUGX(stats.kaseValueToday), color: "#A855F7" }
+                { label: "Kase / Clean", value: formatUGX(stats.kaseValueToday), color: "#A855F7" }
               ]}
             />
             {viewMode === 'Personal' ? (
@@ -431,7 +439,7 @@ export default function Dashboard() {
           details={[
             { label: "Kiboko", value: `${stats.kibokoWeightMonth.toLocaleString()} kg`, color: "#14532D" },
             { label: "Red", value: `${stats.redWeightMonth.toLocaleString()} kg`, color: "#DC2626" },
-            { label: "Kase", value: `${stats.kaseWeightMonth.toLocaleString()} kg`, color: "#A855F7" }
+            { label: "Kase / Clean", value: `${stats.kaseWeightMonth.toLocaleString()} kg`, color: "#A855F7" }
           ]}
         />
         {profile?.role !== 'Super Admin' && (
@@ -445,7 +453,7 @@ export default function Dashboard() {
             details={[
               { label: "Kiboko", value: formatUGX(stats.kibokoValueMonth), color: "#14532D" },
               { label: "Red", value: formatUGX(stats.redValueMonth), color: "#DC2626" },
-              { label: "Kase", value: formatUGX(stats.kaseValueMonth), color: "#A855F7" }
+              { label: "Kase / Clean", value: formatUGX(stats.kaseValueMonth), color: "#A855F7" }
             ]}
           />
         )}
@@ -462,7 +470,7 @@ export default function Dashboard() {
           details={[
             { label: "Kiboko", value: `${stats.kibokoWeightSeason.toLocaleString()} kg`, color: "#14532D" },
             { label: "Red", value: `${stats.redWeightSeason.toLocaleString()} kg`, color: "#DC2626" },
-            { label: "Kase", value: `${stats.kaseWeightSeason.toLocaleString()} kg`, color: "#A855F7" }
+            { label: "Kase / Clean", value: `${stats.kaseWeightSeason.toLocaleString()} kg`, color: "#A855F7" }
           ]}
         />
         <StatCard 
@@ -474,7 +482,7 @@ export default function Dashboard() {
           details={[
             { label: "Kiboko", value: formatUGX(stats.kibokoValueSeason), color: "#14532D" },
             { label: "Red", value: formatUGX(stats.redValueSeason), color: "#DC2626" },
-            { label: "Kase", value: formatUGX(stats.kaseValueSeason), color: "#A855F7" }
+            { label: "Kase / Clean", value: formatUGX(stats.kaseValueSeason), color: "#A855F7" }
           ]}
         />
       </div>
@@ -497,7 +505,11 @@ export default function Dashboard() {
             </div>
           </div>
           
-          {profile?.role === 'Super Admin' ? (
+          {!isReady ? (
+            <div className="h-[220px] w-full bg-gray-50 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-xs font-medium">
+              Preparing charts...
+            </div>
+          ) : profile?.role === 'Super Admin' ? (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={topFarmers} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E5E7EB" />
@@ -537,7 +549,10 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl p-6" style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #F1F5F9" }}>
           <div style={{ fontFamily: "Inter, sans-serif", fontSize: "15px", fontWeight: 600, color: "#111827", marginBottom: "4px" }}>Coffee Type Split</div>
           <div style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#4B5563", marginBottom: "20px" }}>This month</div>
-          <ResponsiveContainer width="100%" height={160}>
+          {!isReady ? (
+            <div className="h-[160px] w-full bg-gray-50 animate-pulse rounded-full flex items-center justify-center" />
+          ) : (
+            <ResponsiveContainer width="100%" height={160}>
             <PieChart>
               <Pie data={coffeeTypeBreakdown} cx="50%" cy="50%" innerRadius={50} outerRadius={72} dataKey="percentage" stroke="none">
                 {coffeeTypeBreakdown.map((_, i) => (
@@ -547,6 +562,7 @@ export default function Dashboard() {
               <Tooltip contentStyle={{ fontFamily: "Inter", fontSize: 12, borderRadius: 8, border: "1px solid #E5E7EB" }} formatter={(v: number) => [`${v}%`, "Share"]} />
             </PieChart>
           </ResponsiveContainer>
+          )}
           <div className="space-y-2 mt-4">
             {coffeeTypeBreakdown.map((item, i) => (
               <div key={item.type} className="flex items-center justify-between">

@@ -200,7 +200,7 @@ export default function FarmerDebts() {
       d.village.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-  const totalDebtValue = debtsList.reduce((sum, d) => sum + d.remaining_debt, 0);
+  const totalDebtValue = debtsList.reduce((sum, d) => sum + Math.max(0, d.remaining_debt || 0), 0);
 
   const handleExport = () => {
     setIsExporting(true);

@@ -58,6 +58,7 @@ export default function FarmerDetail() {
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteMode, setDeleteMode] = useState<"soft" | "hard">("soft");
 
   const loading = (farmerLoading || purchasesLoading || advancesLoading || paymentsLoading) && !farmer;
   const error = (farmerError as any)?.message || null;
@@ -66,18 +67,21 @@ export default function FarmerDetail() {
     if (!profile || (profile.role !== 'Admin' && profile.role !== 'Super Admin')) return;
     try {
       setIsDeleting(true);
-      await farmersService.delete(id!);
+      const isHard = deleteMode === "hard";
+      await farmersService.delete(id!, isHard);
       
       // Invalidate queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ['farmers'] });
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
       queryClient.invalidateQueries({ queryKey: ['advances'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['debt-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['farmer_debt_summary'] });
       
-      toast.success("Client deactivated successfully");
+      toast.success(isHard ? "Client and historical records permanently deleted" : "Client deactivated successfully");
       navigate("/farmers");
     } catch (err: any) {
-      toast.error("Failed to deactivate client: " + err.message);
+      toast.error((deleteMode === "hard" ? "Failed to delete client: " : "Failed to deactivate client: ") + err.message);
       setIsDeleting(false);
     }
   };
@@ -179,21 +183,74 @@ export default function FarmerDetail() {
                   Delete Client
                 </button>
               </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-2xl border-none shadow-2xl">
+              <AlertDialogContent className="rounded-2xl border-none shadow-2xl max-w-lg">
                 <AlertDialogHeader>
-                  <AlertDialogTitle className="text-xl font-bold text-gray-900">Deactivate Client?</AlertDialogTitle>
-                  <AlertDialogDescription className="text-gray-500 text-sm leading-relaxed">
-                    Are you sure you want to deactivate <strong>{farmer.name}</strong>? 
-                    They will no longer appear in your active lists, but their historical records (purchases, advances) will be preserved for auditing.
+                  <AlertDialogTitle className="text-xl font-bold text-gray-900">Delete Client Options</AlertDialogTitle>
+                  <AlertDialogDescription className="text-gray-500 text-sm leading-relaxed mb-2">
+                    Choose how you want to handle the deletion of <strong>{farmer.name}</strong>.
                   </AlertDialogDescription>
+                  
+                  <div className="space-y-3 my-4">
+                    {/* Option 1: Soft Delete */}
+                    <div 
+                      onClick={() => setDeleteMode("soft")}
+                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col text-left ${
+                        deleteMode === 'soft' 
+                          ? 'border-[#14532D] bg-[#f0fdf4]/50' 
+                          : 'border-gray-100 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <input 
+                          type="radio" 
+                          checked={deleteMode === 'soft'} 
+                          onChange={() => setDeleteMode("soft")}
+                          className="accent-[#14532D] w-4 h-4"
+                        />
+                        <span className="font-bold text-sm text-gray-900">Deactivate Only (Soft Delete)</span>
+                        <span className="ml-auto text-[10px] bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full">Recommended</span>
+                      </div>
+                      <span className="text-xs text-gray-500 pl-6">
+                        Removes the client from active lists and drop-downs. Historical purchases, advances, and payments are preserved for auditing and reports.
+                      </span>
+                    </div>
+
+                    {/* Option 2: Hard Delete */}
+                    <div 
+                      onClick={() => setDeleteMode("hard")}
+                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex flex-col text-left ${
+                        deleteMode === 'hard' 
+                          ? 'border-red-500 bg-red-50/50' 
+                          : 'border-gray-100 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <input 
+                          type="radio" 
+                          checked={deleteMode === 'hard'} 
+                          onChange={() => setDeleteMode("hard")}
+                          className="accent-red-600 w-4 h-4"
+                        />
+                        <span className="font-bold text-sm text-gray-900">Delete Client & All History (Hard Delete)</span>
+                        <span className="ml-auto text-[10px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">Danger</span>
+                      </div>
+                      <span className="text-xs text-gray-500 pl-6">
+                        Permanently deletes this client and purges all their records (purchases, advances, payments) from the database. <strong>This action cannot be undone</strong>.
+                      </span>
+                    </div>
+                  </div>
                 </AlertDialogHeader>
                 <AlertDialogFooter className="mt-4">
                   <AlertDialogCancel className="rounded-xl border-gray-200 font-semibold">Cancel</AlertDialogCancel>
                   <AlertDialogAction 
                     onClick={handleDelete}
-                    className="bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold px-6"
+                    className={`rounded-xl font-semibold px-6 ${
+                      deleteMode === 'hard' 
+                        ? 'bg-red-600 hover:bg-red-700 text-white' 
+                        : 'bg-[#14532D] hover:bg-[#14532D]/90 text-white'
+                    }`}
                   >
-                    Confirm Deactivation
+                    {deleteMode === 'hard' ? 'Confirm Permanent Delete' : 'Confirm Deactivation'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

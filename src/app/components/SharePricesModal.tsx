@@ -54,8 +54,9 @@ export function SharePricesModal({ isOpen, onClose, prices, dateStr }: any) {
 
 🟢 *Kiboko:* UGX ${prices.kiboko_price?.toLocaleString()} / kg
 🔴 *Red:* UGX ${prices.red_price?.toLocaleString() || 'N/A'} / kg
-🟣 *Kase:* UGX ${prices.kase_price?.toLocaleString() || 'N/A'} / kg
+🟣 *Kase / Clean:* UGX ${prices.kase_price?.toLocaleString() || 'N/A'} / kg
 
+📍 *Quality:* Moisture must be 15% and below
 _Bring your coffee to us today!_ 🚛`;
 
   const handleWhatsApp = () => {
@@ -64,7 +65,7 @@ _Bring your coffee to us today!_ 🚛`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-sm md:max-w-md overflow-hidden flex flex-col shadow-2xl" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl w-full max-w-[340px] overflow-hidden flex flex-col shadow-2xl" style={{ maxHeight: "90vh" }} onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 style={{ fontFamily: "Inter, sans-serif", fontSize: "16px", fontWeight: 600, color: "#111827" }}>Share Today's Prices</h2>
@@ -79,7 +80,7 @@ _Bring your coffee to us today!_ 🚛`;
           {/* Price Card Preview (What html2canvas captures) */}
           <div 
             ref={cardRef} 
-            className="w-full relative overflow-hidden rounded-2xl bg-white shadow-sm border border-gray-100 p-6"
+            className="w-full relative overflow-hidden rounded-2xl bg-white shadow-sm border border-gray-100 p-5"
             style={{ fontFamily: "Inter, sans-serif" }}
           >
             {/* Aesthetic Background Accents */}
@@ -139,13 +140,20 @@ _Bring your coffee to us today!_ 🚛`;
                 <div className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-[#F8FAFC]">
                   <div className="flex items-center gap-2.5">
                     <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: "#A855F7" }} />
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#374151" }}>Kase</span>
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#374151" }}>Kase / Clean</span>
                   </div>
                   <div className="flex items-baseline gap-1.5">
                     <span style={{ fontSize: "10px", color: "#6B7280", fontWeight: 500 }}>UGX</span>
                     <span style={{ fontSize: "15px", fontWeight: 700, color: "#A855F7" }}>{prices.kase_price ? prices.kase_price.toLocaleString() : '—'}</span>
                   </div>
                 </div>
+              </div>
+
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-100 mb-3">
+                <Info size={12} color="#059669" className="mt-0.5 flex-shrink-0" />
+                <span style={{ fontSize: "11px", fontWeight: 600, color: "#065f46", lineHeight: 1.4 }}>
+                  Moisture content should be 15% and below
+                </span>
               </div>
 
               {/* Footer / Notes */}

@@ -7,7 +7,7 @@ import {
 import { Layout } from "../components/Layout";
 import { 
   BarChart3, TrendingUp, Download, Calendar, Filter, 
-  ArrowUpRight, ArrowDownRight, Coffee, Loader2, Printer
+  ArrowUpRight, ArrowDownRight, Coffee, Loader2, Printer, FlaskConical
 } from "lucide-react";
 import { purchasesService, Purchase } from "../services/purchasesService";
 import { advancesService, Advance } from "../services/advancesService";
@@ -24,6 +24,7 @@ import { useCompanyProfile } from "../hooks/queries/useCompanyProfile";
 import { useSync } from "../contexts/SyncContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { SeasonalReportPrint } from "../components/pos/SeasonalReportPrint";
+import { COFFEE_CONVERSION_RATES } from "../utils/coffeeConversions";
 
 const formatUGX = (v: number) => `UGX ${Math.round(v).toLocaleString()}`;
 
@@ -286,6 +287,91 @@ export default function Reports() {
           </div>
         </div>
       ))}
+
+      {/* ── Kase Yield Estimate ─────────────────────────────────────────── */}
+      <div className="mb-10">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-2 h-6 rounded-full bg-amber-500" />
+          <h2 className="text-lg font-bold text-gray-800">Estimated Kase Yield</h2>
+          <span className="ml-2 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-bold uppercase tracking-wide">
+            Standard conversion rates
+          </span>
+        </div>
+        {/* Conversion rate legend */}
+        <div className="flex flex-wrap gap-3 mb-5">
+          {[
+            { label: 'Red Cherry', rate: '×25%', note: 'Dry + Mill', textColor: '#991B1B', bg: '#fef2f2', border: '#fecaca' },
+            { label: 'Kiboko',     rate: '×65%', note: 'Mill only',  textColor: '#14532D', bg: '#f0fdf4', border: '#bbf7d0' },
+            { label: 'Kase',       rate: '×100%', note: 'Direct',   textColor: '#701A75', bg: '#fdf4ff', border: '#e9d5ff' },
+          ].map(item => (
+            <div key={item.label}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs"
+              style={{ backgroundColor: item.bg, borderColor: item.border, color: item.textColor }}
+            >
+              <span className="font-semibold">{item.label}</span>
+              <span className="font-black">{item.rate}</span>
+              <span style={{ color: '#9CA3AF' }} className="font-normal">({item.note})</span>
+            </div>
+          ))}
+        </div>
+        {/* Yield cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Red → Kase */}
+          <div className="bg-white rounded-2xl p-5 border border-red-100 shadow-sm">
+            <div className="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-2">Red Cherry → Kase (25%)</div>
+            <div className="flex items-end gap-2 mb-1">
+              <span className="text-xl font-black text-gray-900">
+                {(stats.byType.Red.weight * (COFFEE_CONVERSION_RATES.Red ?? 0.25)).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+              </span>
+              <span className="text-sm text-gray-400 mb-0.5">kg Kase</span>
+            </div>
+            <div className="text-xs text-gray-500">
+              from {stats.byType.Red.weight.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg Red
+            </div>
+          </div>
+          {/* Kiboko → Kase */}
+          <div className="bg-white rounded-2xl p-5 border border-green-100 shadow-sm">
+            <div className="text-[10px] font-bold text-green-600 uppercase tracking-wider mb-2">Kiboko → Kase (65%)</div>
+            <div className="flex items-end gap-2 mb-1">
+              <span className="text-xl font-black text-gray-900">
+                {(stats.byType.Kiboko.weight * (COFFEE_CONVERSION_RATES.Kiboko ?? 0.65)).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+              </span>
+              <span className="text-sm text-gray-400 mb-0.5">kg Kase</span>
+            </div>
+            <div className="text-xs text-gray-500">
+              from {stats.byType.Kiboko.weight.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg Kiboko
+            </div>
+          </div>
+          {/* Kase direct */}
+          <div className="bg-white rounded-2xl p-5 border border-purple-100 shadow-sm">
+            <div className="text-[10px] font-bold text-purple-600 uppercase tracking-wider mb-2">Kase Purchased (100%)</div>
+            <div className="flex items-end gap-2 mb-1">
+              <span className="text-xl font-black text-gray-900">
+                {stats.byType.Kase.weight.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+              </span>
+              <span className="text-sm text-gray-400 mb-0.5">kg Kase</span>
+            </div>
+            <div className="text-xs text-gray-500">
+              {stats.byType.Kase.weight.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg already clean
+            </div>
+          </div>
+          {/* Total estimated Kase */}
+          <div className="rounded-2xl p-5 shadow-md" style={{ backgroundColor: '#B45309' }}>
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: '#FEF3C7' }}>Total Est. Kase</div>
+            <div className="flex items-end gap-2 mb-1">
+              <span className="text-2xl font-black text-white">
+                {(
+                  stats.byType.Red.weight    * (COFFEE_CONVERSION_RATES.Red    ?? 0.25) +
+                  stats.byType.Kiboko.weight * (COFFEE_CONVERSION_RATES.Kiboko ?? 0.65) +
+                  stats.byType.Kase.weight   * (COFFEE_CONVERSION_RATES.Kase   ?? 1.0)
+                ).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+              </span>
+              <span className="text-sm mb-0.5" style={{ color: '#FCD34D' }}>kg</span>
+            </div>
+            <div className="text-xs" style={{ color: '#FEF3C7' }}>Seasonal sellable estimate</div>
+          </div>
+        </div>
+      </div>
 
       <div className="border-t border-gray-100 my-8 pt-8">
         <h2 className="text-lg font-bold text-gray-800 mb-6">Aggregated Financials</h2>

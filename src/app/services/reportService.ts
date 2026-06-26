@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { Sale, salesService } from './salesService';
 import { Purchase } from './purchasesService';
 import { Expense } from './expensesService';
+import { COFFEE_CONVERSION_RATES } from '../utils/coffeeConversions';
 
 export interface PostSaleReport {
   sale: Sale;
@@ -16,6 +17,11 @@ export interface PostSaleReport {
     grossProfit: number;
     netProfit: number;
     conversionEfficiency: number;
+    // Kase-equivalent estimates (applying conversion ratios)
+    estimatedKaseFromKiboko: number;  // Kiboko × 65%
+    estimatedKaseFromRed: number;     // Red × 25%
+    estimatedKaseFromKase: number;    // Kase × 100%
+    totalEstimatedKase: number;       // Sum of the three above
   };
 }
 
@@ -75,9 +81,20 @@ export const reportService = {
     const totalPurchaseCost = purchasesTyped.reduce((sum, p) => sum + p.total_amount, 0);
     const totalExpenses = expensesTyped.reduce((sum, e) => sum + e.amount, 0);
     
-    // Total input weight (Kiboko + Red + Kase)
+    // Total input weight (Kiboko + Red + Kase) as raw kg
     const totalInputWeight = totalKiboko + totalRed + totalKase;
-    const conversionEfficiency = totalInputWeight > 0 ? (currentSale.net_weight / totalInputWeight) : 0;
+
+    // Apply conversion ratios to estimate Kase output from each input type:
+    //   Red Cherry  × 25%  → Kase
+    //   Kiboko      × 65%  → Kase
+    //   Kase        × 100% → Kase
+    const estimatedKaseFromKiboko = totalKiboko * (COFFEE_CONVERSION_RATES.Kiboko ?? 0.65);
+    const estimatedKaseFromRed    = totalRed    * (COFFEE_CONVERSION_RATES.Red    ?? 0.25);
+    const estimatedKaseFromKase   = totalKase   * (COFFEE_CONVERSION_RATES.Kase   ?? 1.0);
+    const totalEstimatedKase      = estimatedKaseFromKiboko + estimatedKaseFromRed + estimatedKaseFromKase;
+
+    // Conversion efficiency = what we sold vs what we estimated was available (Kase-equivalent)
+    const conversionEfficiency = totalEstimatedKase > 0 ? (currentSale.net_weight / totalEstimatedKase) : 0;
 
     const grossProfit = currentSale.total_amount - totalPurchaseCost;
     const netProfit = grossProfit - totalExpenses;
@@ -94,7 +111,11 @@ export const reportService = {
         totalExpenses,
         grossProfit,
         netProfit,
-        conversionEfficiency
+        conversionEfficiency,
+        estimatedKaseFromKiboko,
+        estimatedKaseFromRed,
+        estimatedKaseFromKase,
+        totalEstimatedKase,
       }
     };
   },

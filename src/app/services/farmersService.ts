@@ -62,12 +62,42 @@ export const farmersService = {
     return data as Farmer;
   },
 
-  async delete(id: string) {
-    const { error } = await supabase
-      .from('farmers')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', id);
-    
-    if (error) throw error;
+  async delete(id: string, cascadeHistory: boolean = false) {
+    if (cascadeHistory) {
+      // 1. Delete farmer payments
+      const { error: payErr } = await supabase
+        .from('farmer_payments')
+        .delete()
+        .eq('farmer_id', id);
+      if (payErr) throw payErr;
+
+      // 2. Delete purchases
+      const { error: purchErr } = await supabase
+        .from('purchases')
+        .delete()
+        .eq('farmer_id', id);
+      if (purchErr) throw purchErr;
+
+      // 3. Delete advances
+      const { error: advErr } = await supabase
+        .from('advances')
+        .delete()
+        .eq('farmer_id', id);
+      if (advErr) throw advErr;
+
+      // 4. Hard delete farmer record
+      const { error: fErr } = await supabase
+        .from('farmers')
+        .delete()
+        .eq('id', id);
+      if (fErr) throw fErr;
+    } else {
+      const { error } = await supabase
+        .from('farmers')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id);
+      
+      if (error) throw error;
+    }
   }
 };

@@ -152,7 +152,7 @@ export const purchasesService = {
     if (seasonId) {
       seasonalQuery = supabase
         .from('purchases')
-        .select('payable_weight, total_amount, coffee_type, farmers!inner(deleted_at)')
+        .select('payable_weight, total_amount, coffee_type, date, farmers!inner(deleted_at)')
         .is('farmers.deleted_at', null)
         .eq('season_id', seasonId);
     }
@@ -223,7 +223,8 @@ export const purchasesService = {
           Kiboko: (seasonalResult.data || []).filter(p => p.coffee_type === 'Kiboko').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
           Red: (seasonalResult.data || []).filter(p => p.coffee_type === 'Red').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
           Kase: (seasonalResult.data || []).filter(p => p.coffee_type === 'Kase').reduce((s, p) => s + (p.total_amount || 0), 0) || 0,
-        }
+        },
+        purchases: seasonalResult.data || []
       }
     };
 

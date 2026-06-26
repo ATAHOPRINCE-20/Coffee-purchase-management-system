@@ -59,6 +59,7 @@ export default function Expenses() {
   // Form state
   const [category, setCategory] = useState<"cost" | "general">("cost");
   const [expType, setExpType] = useState<string>(COST_TYPES[0]);
+  const [otherDescription, setOtherDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(() => getEATDateString());
   const [notes, setNotes] = useState("");
@@ -73,6 +74,7 @@ export default function Expenses() {
         const parsed = JSON.parse(draft);
         setCategory(parsed.category || "cost");
         setExpType(parsed.expType || "");
+        setOtherDescription(parsed.otherDescription || "");
         setAmount(parsed.amount || "");
         setDate(parsed.date || getEATDateString());
         setNotes(parsed.notes || "");
@@ -85,9 +87,9 @@ export default function Expenses() {
 
   // Save draft on change
   useEffect(() => {
-    const draft = { category, expType, amount, date, notes, selectedSaleId };
+    const draft = { category, expType, otherDescription, amount, date, notes, selectedSaleId };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  }, [category, expType, amount, date, notes, selectedSaleId]);
+  }, [category, expType, otherDescription, amount, date, notes, selectedSaleId]);
 
   const typeOptions = category === "cost" ? COST_TYPES : GENERAL_TYPES;
 
@@ -132,11 +134,16 @@ export default function Expenses() {
       const adminId = getEffectiveAdminId(profile);
       if (!adminId || !profile) return;
       
+      // When "Others" is chosen, use the custom description as the type (or fallback to "Others")
+      const resolvedType = (expType === 'Others' && otherDescription.trim())
+        ? otherDescription.trim()
+        : expType;
+
       const expenseData = {
         admin_id: (adminId === 'SUPER_ADMIN' ? profile.id : adminId) || '',
         season_id: activeSeason?.id,
         category,
-        type: expType,
+        type: resolvedType,
         amount: amt,
         date,
         notes: notes.trim() || undefined,
@@ -157,6 +164,7 @@ export default function Expenses() {
       }
       
       setNotes("");
+      setOtherDescription("");
       setSelectedSaleId("");
       setDate(getEATDateString());
       localStorage.removeItem(DRAFT_KEY);
@@ -322,6 +330,17 @@ export default function Expenses() {
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
+                {/* Custom description field shown only when "Others" is selected */}
+                {expType === 'Others' && (
+                  <input
+                    type="text"
+                    placeholder="Specify expense (e.g. Fuel, Stationery…)"
+                    value={otherDescription}
+                    onChange={e => setOtherDescription(e.target.value)}
+                    className="mt-2 w-full px-3.5 py-2.5 rounded-xl border border-purple-200 outline-none focus:border-[#14532D] bg-purple-50/40"
+                    style={{ fontFamily: "Inter, sans-serif", fontSize: "13px" }}
+                  />
+                )}
               </div>
 
               {/* Amount */}

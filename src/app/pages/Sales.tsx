@@ -98,6 +98,7 @@ export default function SalesPage() {
   const [notes, setNotes] = useState("");
   const [manualDeduction, setManualDeduction] = useState<string>("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [stockWarning, setStockWarning] = useState<string | null>(null);
   const DRAFT_KEY = 'sales_form_draft';
 
   // Load draft on mount
@@ -160,10 +161,11 @@ export default function SalesPage() {
     if (!moisture || moist <= 0) { setFormError("Enter a valid moisture content."); return; }
     if (!sellingPrice || price <= 0) { setFormError("Enter a valid selling price."); return; }
 
-    // Inventory Validation
+    // Inventory soft-warning (non-blocking)
     if (availableStock !== null && netWeight > availableStock) {
-      setFormError(`Insufficient coffee in system. Available: ${availableStock.toFixed(1)} kg`);
-      return;
+      setStockWarning(`Note: Net weight (${netWeight.toFixed(1)} kg) exceeds recorded stock (~${availableStock.toFixed(1)} kg Kase est.). The sale will still be recorded.`);
+    } else {
+      setStockWarning(null);
     }
 
     try {
@@ -414,7 +416,7 @@ export default function SalesPage() {
               <div>
                 <label className={labelClass}>Coffee Type</label>
                 <div className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-between" style={{ fontFamily: "Inter, sans-serif", fontSize: "13px" }}>
-                  <span className="font-semibold text-purple-700">Kase</span>
+                  <span className="font-semibold text-purple-700">Kase / Clean</span>
                   <span className="text-gray-400 text-xs">Only Kase is sold</span>
                 </div>
               </div>
@@ -424,14 +426,24 @@ export default function SalesPage() {
                 <div className="flex justify-between items-end mb-1.5">
                   <label className={labelClass}>Gross Weight (kg) <span className="text-red-500">*</span></label>
                   {availableStock !== null && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${availableStock > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                      Available: {availableStock.toFixed(1)} kg
+                    <span
+                      title="Kase-equivalent weight: Red×25%, Kiboko×65%, Kase×100%"
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${availableStock > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}
+                    >
+                      ~{availableStock.toFixed(1)} kg Kase est.
                     </span>
                   )}
                 </div>
                 <input type="number" min="0" step="0.1" placeholder="e.g. 500" value={grossWeight}
-                  onChange={e => setGrossWeight(e.target.value)} className={inputClass}
+                  onChange={e => { setGrossWeight(e.target.value); setStockWarning(null); }} className={inputClass}
                   style={{ fontFamily: "Inter, sans-serif", fontSize: "13px" }} />
+                {/* Soft stock warning */}
+                {stockWarning && (
+                  <div className="mt-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2">
+                    <span style={{ fontSize: "13px" }}>⚠️</span>
+                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: "11px", color: "#92400e", lineHeight: 1.4 }}>{stockWarning}</span>
+                  </div>
+                )}
               </div>
 
               {/* Moisture & Standard row */}
@@ -485,7 +497,7 @@ export default function SalesPage() {
               {/* Selling Price */}
               <div>
                 <label className={labelClass}>Selling Price (UGX/kg) <span className="text-red-500">*</span></label>
-                <input type="number" min="0" step="100" placeholder="e.g. 1200" value={sellingPrice}
+                <input type="number" min="0" step="any" placeholder="e.g. 1200" value={sellingPrice}
                   onChange={e => setSellingPrice(e.target.value)} className={inputClass}
                   style={{ fontFamily: "Inter, sans-serif", fontSize: "13px" }} />
               </div>
@@ -735,7 +747,7 @@ function PostSaleReportModal({ isOpen, onClose, report }: { isOpen: boolean; onC
               </div>
 
               <h3 className="text-lg font-bold text-gray-900 uppercase tracking-wide py-1">
-                BATCH SALE REPORT ({report.sale.coffee_type})
+                BATCH SALE REPORT ({report.sale.coffee_type === 'Kase' ? 'Kase / Clean' : report.sale.coffee_type})
               </h3>
             </div>
 

@@ -154,7 +154,7 @@ export default function PurchasesList() {
               <option value="All">All Types</option>
               <option value="Kiboko">Kiboko</option>
               <option value="Red">Red</option>
-              <option value="Kase">Kase</option>
+              <option value="Kase">Kase / Clean</option>
             </select>
           </div>
         </div>
@@ -274,7 +274,7 @@ export default function PurchasesList() {
                                           fontFamily: "Inter, sans-serif", fontSize: "10px", fontWeight: 500,
                                           backgroundColor: p.coffee_type === "Kiboko" ? "#ecfdf5" : p.coffee_type === "Red" ? "#fef2f2" : "#fdf4ff",
                                           color: p.coffee_type === "Kiboko" ? "#065f46" : p.coffee_type === "Red" ? "#991b1b" : "#701a75"
-                                        }}>{p.coffee_type}</span>
+                                        }}>{p.coffee_type === 'Kase' ? 'Kase / Clean' : p.coffee_type}</span>
                                       </td>
                                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ fontFamily: "Inter, sans-serif", fontSize: "12px", color: "#374151" }}>{p.gross_weight} kg</td>
                                       <td className="px-3 py-2.5 whitespace-nowrap">
@@ -416,7 +416,7 @@ export default function PurchasesList() {
                                 fontFamily: "Inter, sans-serif", fontSize: "10px", fontWeight: 500,
                                 backgroundColor: p.coffee_type === "Kiboko" ? "#ecfdf5" : p.coffee_type === "Red" ? "#fef2f2" : "#fdf4ff",
                                 color: p.coffee_type === "Kiboko" ? "#065f46" : p.coffee_type === "Red" ? "#991b1b" : "#701a75"
-                              }}>{p.coffee_type}</span>
+                              }}>{p.coffee_type === 'Kase' ? 'Kase / Clean' : p.coffee_type}</span>
                            </div>
                            <span style={{ fontFamily: "Inter, sans-serif", fontSize: "10px", color: "#6B7280" }}>{p.date}</span>
                         </div>

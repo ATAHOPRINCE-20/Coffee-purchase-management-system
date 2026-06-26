@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { purchasesService } from '../../services/purchasesService';
 
-export function usePurchases(adminId: string | null, limit = 50, onlyPersonal = false) {
+export function usePurchases(adminId: string | null, limit?: number, onlyPersonal = false) {
   const queryClient = useQueryClient();
 
   const query = useQuery({

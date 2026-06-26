@@ -11,30 +11,33 @@ const PageLoader = () => (
   </div>
 );
 
+import { lazyWithRetry } from "./utils/lazyWithRetry";
+
 // Lazy load all pages
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const PurchaseEntry = lazy(() => import("./pages/PurchaseEntry"));
-const PurchasesList = lazy(() => import("./pages/PurchasesList"));
-const FarmersList = lazy(() => import("./pages/FarmersList"));
-const FarmerDetail = lazy(() => import("./pages/FarmerDetail"));
-const AdvanceManagement = lazy(() => import("./pages/AdvanceManagement"));
-const PriceManagement = lazy(() => import("./pages/PriceManagement"));
-const SeasonManagement = lazy(() => import("./pages/SeasonManagement"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-const Login = lazy(() => import("./pages/Login"));
-const Register = lazy(() => import("./pages/Register"));
-const AcceptInvite = lazy(() => import("./pages/AcceptInvite"));
-const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
-const ResetPassword = lazy(() => import("./pages/ResetPassword"));
-const FarmerForm = lazy(() => import("./pages/FarmerForm"));
-const Reports = lazy(() => import("./pages/Reports"));
-const Settings = lazy(() => import("./pages/Settings"));
-const Expenses = lazy(() => import("./pages/Expenses"));
-const Sales = lazy(() => import("./pages/Sales"));
-const SaleHistory = lazy(() => import("./pages/SaleHistory"));
-const Settlement = lazy(() => import("./pages/Settlement"));
-const FarmerDebts = lazy(() => import("./pages/FarmerDebts"));
-const UserManagement = lazy(() => import("./pages/UserManagement"));
+const Dashboard = lazyWithRetry(() => import("./pages/Dashboard"));
+const PurchaseEntry = lazyWithRetry(() => import("./pages/PurchaseEntry"));
+const PurchasesList = lazyWithRetry(() => import("./pages/PurchasesList"));
+const FarmersList = lazyWithRetry(() => import("./pages/FarmersList"));
+const FarmerDetail = lazyWithRetry(() => import("./pages/FarmerDetail"));
+const AdvanceManagement = lazyWithRetry(() => import("./pages/AdvanceManagement"));
+const PriceManagement = lazyWithRetry(() => import("./pages/PriceManagement"));
+const CoffeeProcessing = lazyWithRetry(() => import("./pages/CoffeeProcessing"));
+const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
+const Login = lazyWithRetry(() => import("./pages/Login"));
+const Register = lazyWithRetry(() => import("./pages/Register"));
+const AcceptInvite = lazyWithRetry(() => import("./pages/AcceptInvite"));
+const ForgotPassword = lazyWithRetry(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazyWithRetry(() => import("./pages/ResetPassword"));
+const FarmerForm = lazyWithRetry(() => import("./pages/FarmerForm"));
+const Reports = lazyWithRetry(() => import("./pages/Reports"));
+const Settings = lazyWithRetry(() => import("./pages/Settings"));
+const Expenses = lazyWithRetry(() => import("./pages/Expenses"));
+const Sales = lazyWithRetry(() => import("./pages/Sales"));
+const SaleHistory = lazyWithRetry(() => import("./pages/SaleHistory"));
+const Settlement = lazyWithRetry(() => import("./pages/Settlement"));
+const FarmerDebts = lazyWithRetry(() => import("./pages/FarmerDebts"));
+const SeasonManagement = lazyWithRetry(() => import("./pages/SeasonManagement"));
+const UserManagement = lazyWithRetry(() => import("./pages/UserManagement"));
 
 // Helper to wrap components in Suspense
 const Loadable = (Component: any) => (props: any) => (
@@ -77,11 +80,17 @@ export const router = createBrowserRouter([
         children: [
           { path: "/advances", element: <Suspense fallback={<PageLoader />}><AdvanceManagement /></Suspense> },
           { path: "/prices", element: <Suspense fallback={<PageLoader />}><PriceManagement /></Suspense> },
-          { path: "/reports", element: <Suspense fallback={<PageLoader />}><Reports /></Suspense> },
+          { path: "/processing", element: <Suspense fallback={<PageLoader />}><CoffeeProcessing /></Suspense> },
           { path: "/expenses", element: <Suspense fallback={<PageLoader />}><Expenses /></Suspense> },
           { path: "/history", element: <Suspense fallback={<PageLoader />}><SaleHistory /></Suspense> },
           { path: "/settle", element: <Suspense fallback={<PageLoader />}><Settlement /></Suspense> },
           { path: "/debts", element: <Suspense fallback={<PageLoader />}><FarmerDebts /></Suspense> },
+        ],
+      },
+      {
+        element: <ProtectedRoute allowedRoles={['Admin', 'Manager', 'Super Admin']} />,
+        children: [
+          { path: "/reports", element: <Suspense fallback={<PageLoader />}><Reports /></Suspense> },
         ],
       },
       {

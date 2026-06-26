@@ -1,4 +1,6 @@
 import { supabase } from '../lib/supabase';
+import { COFFEE_CONVERSION_RATES } from '../utils/coffeeConversions';
+import { processingService } from './processingService';
 
 export interface Sale {
   id: string;
@@ -91,10 +93,10 @@ export const salesService = {
     const { data: latestSale } = await latestSaleQuery.maybeSingle();
     const lastSaleTime = latestSale?.created_at || '1970-01-01T00:00:00Z';
 
-    // 1. Get total purchases weight since the last sale
+    // 1. Get all purchases since the last sale, including coffee_type for conversion
     let pQuery = supabase
       .from('purchases')
-      .select('payable_weight, farmers!inner(deleted_at)')
+      .select('payable_weight, coffee_type, farmers!inner(deleted_at)')
       .is('farmers.deleted_at', null)
       .gt('created_at', lastSaleTime);
     
@@ -107,9 +109,24 @@ export const salesService = {
     
     const { data: pData, error: pError } = await pQuery;
     if (pError) throw pError;
-    const totalPurchases = pData?.reduce((sum, p) => sum + (p.payable_weight || 0), 0) || 0;
 
-    // 2. Get total agent settlements weight since the last sale
+    // Apply conversion ratios: Red×25%, Kiboko×65%, Kase×100%
+    // This gives the total estimated Kase-equivalent weight available to sell.
+    const autoEstimate = (pData || []).reduce((sum, p) => {
+      const rate = COFFEE_CONVERSION_RATES[(p as any).coffee_type] ?? 1.0;
+      return sum + (p.payable_weight || 0) * rate;
+    }, 0);
+
+    // 2. Get actual processing corrections (hybrid override)
+    // When an admin records an actual batch (e.g. "milled 200 kg Kiboko → got 120 kg Kase"
+    // instead of the estimated 130 kg), we apply the difference as a correction.
+    // correction = actualOutput - estimatedOutput  (can be positive or negative)
+    const { actualOutput, estimatedOutput } =
+      await processingService.getProcessingCorrectionSince(adminId, lastSaleTime, seasonId);
+    const processingCorrection = actualOutput - estimatedOutput;
+
+    // 3. Get total agent settlements weight since the last sale
+    // Agent settlements represent Kase weight already received at the warehouse.
     let sQuery = supabase
       .from('agent_settlements')
       .select('weight')
@@ -122,8 +139,10 @@ export const salesService = {
     if (sError) throw sError;
     const totalSettlements = sData?.reduce((sum, s) => sum + (s.weight || 0), 0) || 0;
 
-    // No need to subtract sales anymore because we are only looking at what was added AFTER the last sale.
-    // This strictly enforces the "per batch" requirement.
-    return totalPurchases + totalSettlements;
+    // Hybrid total:
+    //   autoEstimate         = Kase from all purchases using standard ratios
+    //   processingCorrection = delta from actual batches (actual - estimated for processed inputs)
+    //   totalSettlements     = physical Kase received from agents
+    return Math.max(0, autoEstimate + processingCorrection + totalSettlements);
   },
 };
