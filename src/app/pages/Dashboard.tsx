@@ -17,6 +17,8 @@ import { useAuth, getEffectiveAdminId } from "../hooks/useAuth";
 import { getEATDateString, getEATGreeting } from "../utils/dateUtils";
 import { formatCurrency } from "../utils/formatters";
 import { SharePricesModal } from "../components/SharePricesModal";
+import { DailyReportModal } from "../components/DailyReportModal";
+import { MonthlyReportModal } from "../components/MonthlyReportModal";
 import { useAdvances } from "../hooks/queries/useAdvances";
 import { useFarmers } from "../hooks/queries/useFarmers";
 import { useSeasons } from "../hooks/queries/useSeasons";
@@ -30,12 +32,23 @@ import { useAgentPerformance } from "../hooks/queries/useAgentPerformance";
 
 const formatUGX = (v: number) => `UGX ${(v || 0).toLocaleString()}`;
 
-const StatCard = memo(function StatCard({ icon: Icon, label, value, sub, color, trend, details }: {
+const StatCard = memo(function StatCard({ icon: Icon, label, value, sub, color, trend, details, onClick }: {
   icon: ElementType; label: string; value: string; sub?: string; color: string; trend?: string;
   details?: { label: string; value: string; color: string }[];
+  onClick?: () => void;
 }) {
+  const isClickable = !!onClick;
   return (
-    <div className="bg-white rounded-xl p-4 md:p-6 flex flex-col justify-between" style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #F1F5F9" }}>
+    <div 
+      className={`bg-white rounded-xl p-4 md:p-6 flex flex-col justify-between ${
+        isClickable ? "cursor-pointer hover:border-green-200 hover:shadow-md transition-all transform hover:-translate-y-0.5" : ""
+      }`} 
+      style={{ 
+        boxShadow: "0 4px 12px rgba(0,0,0,0.05)", 
+        border: "1px solid #F1F5F9" 
+      }}
+      onClick={onClick}
+    >
       <div>
         <div className="flex items-start justify-between mb-4">
           <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${color}18` }}>
@@ -77,6 +90,10 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<'Personal' | 'Team'>('Personal');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showDailyReport, setShowDailyReport] = useState(false);
+  const [dailyReportDate, setDailyReportDate] = useState('');
+  const [showMonthlyReport, setShowMonthlyReport] = useState(false);
+  const [monthlyReportMonth, setMonthlyReportMonth] = useState('');
   const [isReady, setIsReady] = useState(false);
 
   // Defer mounting heavy components until after initial LCP
@@ -385,6 +402,10 @@ export default function Dashboard() {
             { label: "Red", value: `${stats.redWeightToday.toLocaleString()} kg`, color: "#DC2626" },
             { label: "Kase / Clean", value: `${stats.kaseWeightToday.toLocaleString()} kg`, color: "#A855F7" }
           ]}
+          onClick={() => {
+            setDailyReportDate(todayStr);
+            setShowDailyReport(true);
+          }}
         />
         {profile?.role !== 'Super Admin' && (
           <>
@@ -408,6 +429,10 @@ export default function Dashboard() {
                 { label: "Red", value: formatUGX(stats.redValueToday), color: "#DC2626" },
                 { label: "Kase / Clean", value: formatUGX(stats.kaseValueToday), color: "#A855F7" }
               ]}
+              onClick={() => {
+                setDailyReportDate(todayStr);
+                setShowDailyReport(true);
+              }}
             />
             {viewMode === 'Personal' ? (
               <StatCard icon={CreditCard} label="Outstanding Farmer Advances" value={`${formatUGX(stats.totalAdvancesOutstanding)}`} sub={`across ${advances.length} farmers`} color="#F59E0B" />
@@ -441,6 +466,12 @@ export default function Dashboard() {
             { label: "Red", value: `${stats.redWeightMonth.toLocaleString()} kg`, color: "#DC2626" },
             { label: "Kase / Clean", value: `${stats.kaseWeightMonth.toLocaleString()} kg`, color: "#A855F7" }
           ]}
+          onClick={() => {
+            const now = new Date();
+            const curMonth = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+            setMonthlyReportMonth(curMonth);
+            setShowMonthlyReport(true);
+          }}
         />
         {profile?.role !== 'Super Admin' && (
           <StatCard 
@@ -455,6 +486,12 @@ export default function Dashboard() {
               { label: "Red", value: formatUGX(stats.redValueMonth), color: "#DC2626" },
               { label: "Kase / Clean", value: formatUGX(stats.kaseValueMonth), color: "#A855F7" }
             ]}
+            onClick={() => {
+              const now = new Date();
+              const curMonth = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+              setMonthlyReportMonth(curMonth);
+              setShowMonthlyReport(true);
+            }}
           />
         )}
       </div>
@@ -805,6 +842,20 @@ export default function Dashboard() {
         onClose={() => setShowShareModal(false)}
         prices={todayPrices || undefined}
         dateStr={todayPrices?.date || getEATDateString()}
+      />
+      <DailyReportModal
+        isOpen={showDailyReport}
+        onClose={() => setShowDailyReport(false)}
+        adminId={adminId}
+        onlyDirect={viewMode === 'Personal'}
+        initialDate={dailyReportDate}
+      />
+      <MonthlyReportModal
+        isOpen={showMonthlyReport}
+        onClose={() => setShowMonthlyReport(false)}
+        adminId={adminId}
+        onlyDirect={viewMode === 'Personal'}
+        initialMonth={monthlyReportMonth}
       />
       </div>
     </Layout>
